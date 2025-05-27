@@ -1,10 +1,9 @@
-
 [
   {
     "id": "v1",
     "name": "Global Steel Traders",
     "category": "Raw Materials",
-    "items": ["steel sheets", "metal rods"],
+    "items": ["hot-rolled steel sheets", "galvanized metal rods", "mild steel bars"],
     "price": 58.5,
     "delivery_days": 6,
     "location": "Mumbai",
@@ -16,7 +15,7 @@
     "id": "v2",
     "name": "ElectroLite Supplies",
     "category": "Electronics",
-    "items": ["LED panel lights", "switchboards"],
+    "items": ["LED panel lights", "smart switchboards", "capacitive touch sensors"],
     "price": 22.0,
     "delivery_days": 4,
     "location": "Bangalore",
@@ -25,39 +24,112 @@
     "certified": true
   },
   {
-    "id": "v3",
-    "name": "Quick Industrial Parts",
-    "category": "Components",
-    "items": ["ball bearings", "valves"],
-    "price": 15.0,
-    "delivery_days": 9,
-    "location": "Chennai",
-    "rating": 4.2,
-    "response_hours": 4,
-    "certified": false
+    "id": "v6",
+    "name": "PackRight Solutions",
+    "category": "Packaging",
+    "items": ["biodegradable boxes", "shock-resistant bubble wraps", "pallet stretch films"],
+    "price": 12.5,
+    "delivery_days": 3,
+    "location": "Pune",
+    "rating": 4.3,
+    "response_hours": 2,
+    "certified": true
   },
   {
-    "id": "v4",
-    "name": "Smart Tech Vendors",
-    "category": "Electronics",
-    "items": ["LED panel lights", "motion sensors"],
-    "price": 20.0,
-    "delivery_days": 7,
-    "location": "Hyderabad",
-    "rating": 4.5,
+    "id": "v9",
+    "name": "MechaCore Systems",
+    "category": "Machinery",
+    "items": ["5-axis CNC machines", "programmable hydraulic presses", "laser cutting machines"],
+    "price": 420.0,
+    "delivery_days": 12,
+    "location": "Coimbatore",
+    "rating": 4.9,
+    "response_hours": 2,
+    "certified": true
+  },
+  {
+    "id": "v12",
+    "name": "EcoPack Technologies",
+    "category": "Sustainable Packaging",
+    "items": [
+      "cornstarch packaging films",
+      "eco mailer bags",
+      "recyclable cartons",
+      "printed biodegradable wraps"
+    ],
+    "price": 17.5,
+    "delivery_days": 5,
+    "location": "Noida",
+    "rating": 4.7,
     "response_hours": 3,
     "certified": true
   },
   {
-    "id": "v5",
-    "name": "Bharat Electricals",
-    "category": "Electrical Supplies",
-    "items": ["copper wires", "switchboards"],
-    "price": 29.5,
-    "delivery_days": 5,
-    "location": "Delhi",
-    "rating": 4.0,
-    "response_hours": 5,
-    "certified": false
+    "id": "v13",
+    "name": "TranzMax Logistics",
+    "category": "Logistics",
+    "items": [
+      "cross-border freight",
+      "inventory warehousing",
+      "real-time GPS shipment tracking",
+      "customs clearance services"
+    ],
+    "price": 85.0,
+    "delivery_days": 3,
+    "location": "Mumbai",
+    "rating": 4.9,
+    "response_hours": 1,
+    "certified": true
+  },
+  {
+    "id": "v14",
+    "name": "PrimeWork Office Essentials",
+    "category": "Office Supplies",
+    "items": [
+      "ergonomic office chairs",
+      "A4 reams (500 sheets)",
+      "multi-brand toner cartridges",
+      "office stationery bundles"
+    ],
+    "price": 30.0,
+    "delivery_days": 2,
+    "location": "Gurgaon",
+    "rating": 4.5,
+    "response_hours": 2,
+    "certified": true
+  },
+  {
+    "id": "v15",
+    "name": "Sterisafe Solutions",
+    "category": "Safety Equipment",
+    "items": [
+      "industrial-grade gloves",
+      "PPE kits (Level 4)",
+      "multi-type fire extinguishers",
+      "chemical spill kits"
+    ],
+    "price": 25.0,
+    "delivery_days": 3,
+    "location": "Surat",
+    "rating": 4.6,
+    "response_hours": 3,
+    "certified": true
+  },
+  {
+    "id": "v16",
+    "name": "AquaEdge Sanitation",
+    "category": "Cleaning Services",
+    "items": [
+      "factory floor cleaning",
+      "fume extractor maintenance",
+      "drainage disinfection",
+      "office sanitization (COVID-compliant)"
+    ],
+    "price": 90.0,
+    "delivery_days": 1,
+    "location": "Vizag",
+    "rating": 4.8,
+    "response_hours": 2,
+    "certified": true
   }
 ]
