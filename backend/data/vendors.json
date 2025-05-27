@@ -1,0 +1,63 @@
+
+[
+  {
+    "id": "v1",
+    "name": "Global Steel Traders",
+    "category": "Raw Materials",
+    "items": ["steel sheets", "metal rods"],
+    "price": 58.5,
+    "delivery_days": 6,
+    "location": "Mumbai",
+    "rating": 4.6,
+    "response_hours": 2,
+    "certified": true
+  },
+  {
+    "id": "v2",
+    "name": "ElectroLite Supplies",
+    "category": "Electronics",
+    "items": ["LED panel lights", "switchboards"],
+    "price": 22.0,
+    "delivery_days": 4,
+    "location": "Bangalore",
+    "rating": 4.8,
+    "response_hours": 1,
+    "certified": true
+  },
+  {
+    "id": "v3",
+    "name": "Quick Industrial Parts",
+    "category": "Components",
+    "items": ["ball bearings", "valves"],
+    "price": 15.0,
+    "delivery_days": 9,
+    "location": "Chennai",
+    "rating": 4.2,
+    "response_hours": 4,
+    "certified": false
+  },
+  {
+    "id": "v4",
+    "name": "Smart Tech Vendors",
+    "category": "Electronics",
+    "items": ["LED panel lights", "motion sensors"],
+    "price": 20.0,
+    "delivery_days": 7,
+    "location": "Hyderabad",
+    "rating": 4.5,
+    "response_hours": 3,
+    "certified": true
+  },
+  {
+    "id": "v5",
+    "name": "Bharat Electricals",
+    "category": "Electrical Supplies",
+    "items": ["copper wires", "switchboards"],
+    "price": 29.5,
+    "delivery_days": 5,
+    "location": "Delhi",
+    "rating": 4.0,
+    "response_hours": 5,
+    "certified": false
+  }
+]
