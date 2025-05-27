@@ -13,11 +13,6 @@ Instructions:
 - Add a clear recommendation with reasoning.
 - Mention all vendor options for comparison.
 - Include a suggested next step (e.g. "Contact Vendor A immediately to confirm availability").
-- DO NOT use any markdown formatting like *bold, *italic, or ##headers##.
-- DO NOT use markdown tables with | symbols.
-- Present vendor comparison information in a simple, readable text format using plain formatting.
-- Use clear section headers without special formatting.
-- Write everything in plain text that displays well in chat format.
 
 User Request: {request['item']} ({request['quantity']} units) needed in {request['location']} within {request['days_needed']} days.
 
