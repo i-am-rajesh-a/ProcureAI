@@ -1,0 +1,151 @@
+/* HomePage.css */
+
+.main {
+  min-height: 100vh;
+  background: linear-gradient(to bottom right, #0f172a, #1f2937, #0f172a);
+  color: white;
+  padding: 80px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: Arial, sans-serif;
+}
+
+.hero {
+  text-align: center;
+  max-width: 1024px;
+  margin-bottom: 80px;
+}
+
+.hero-title {
+  font-size: 36px;
+  font-weight: 800;
+  margin-bottom: 24px;
+  background: linear-gradient(to right, #22d3ee, #a855f7, #6366f1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (min-width: 768px) {
+  .hero-title {
+    font-size: 56px;
+  }
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  color: #d1d5db;
+  max-width: 640px;
+  margin: 0 auto 32px;
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: center;
+}
+
+@media (min-width: 640px) {
+  .button-group {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
+
+.button {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  color: white;
+  text-decoration: none;
+  transition: background 0.3s;
+}
+
+.button-primary {
+  background-color: #4f46e5;
+}
+
+.button-primary:hover {
+  background-color: #6366f1;
+}
+
+.button-secondary {
+  background-color: #374151;
+}
+
+.button-secondary:hover {
+  background-color: #4b5563;
+}
+
+.features {
+  display: grid;
+  gap: 32px;
+  max-width: 1280px;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .features {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.feature-card {
+  background: rgba(55, 65, 81, 0.7);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid #4b5563;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.3s ease;
+}
+
+.feature-card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.feature-emoji {
+  font-size: 28px;
+  margin-bottom: 16px;
+}
+
+.feature-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.feature-desc {
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.footer {
+  margin-top: 96px;
+  text-align: center;
+}
+
+.footer-text {
+  color: #9ca3af;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.cta-button {
+  display: inline-block;
+  padding: 16px 32px;
+  background: linear-gradient(to right, #06b6d4, #a855f7);
+  color: white;
+  font-weight: bold;
+  border-radius: 9999px;
+  text-decoration: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 0.3s ease;
+}
+
+.cta-button:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}

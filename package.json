@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@prisma/client": "^6.8.2",
+    "@react-oauth/google": "^0.12.2",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "google-auth-library": "^9.15.1",
+    "prisma": "^6.8.2"
+  }
+}

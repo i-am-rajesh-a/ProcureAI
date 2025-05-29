@@ -9,6 +9,10 @@ import google.generativeai as genai
 from prompts import build_prompt
 from vendor_logic import score_vendors
 
+# --- Google Auth imports ---
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
 load_dotenv()
 app = Flask(__name__)
 CORS(app)
@@ -140,6 +144,44 @@ def recommend():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+# ---------------- GOOGLE AUTH ENDPOINT ----------------
+@app.route("/api/auth/google", methods=["POST"])
+def google_auth():
+    try:
+        token = request.json.get("token")
+        if not token:
+            return jsonify({"success": False, "error": "No token provided"}), 400
+
+        # Use the backend's GOOGLE_CLIENT_ID (set in your backend .env)
+        google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+        if not google_client_id:
+            return jsonify({"success": False, "error": "Google client ID not set in backend"}), 500
+
+        # Verify the token with Google
+        idinfo = id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            google_client_id
+        )
+
+        # idinfo now contains user info (email, name, etc.)
+        # Here you would typically create or fetch the user in your DB
+
+        # Example: return user info (never return the token itself)
+        return jsonify({
+            "success": True,
+            "user": {
+                "email": idinfo.get("email"),
+                "name": idinfo.get("name"),
+                "picture": idinfo.get("picture"),
+                "sub": idinfo.get("sub"),
+            }
+        })
+
+    except Exception as e:
+        print("Google Auth Error:", e)
+        return jsonify({"success": False, "error": str(e)}), 400
 
 if __name__ == "__main__":
     app.run(debug=True)
