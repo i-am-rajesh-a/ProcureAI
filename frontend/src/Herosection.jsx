@@ -1,14 +1,15 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowRightIcon, LogInIcon } from 'lucide-react';
+import logo from './assets/buysmartlogoHD.png';
 
 export default function HeroSection() {
   const navigate = useNavigate();
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-700 to-slate-900 px-6 sm:px-12">
+    <div className="relative min-w-screen min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 via-purple-700 to-slate-900 px-6 sm:px-12">
       {/* Background Blur Circles with subtle animation */}
-      <div className="absolute w-[400px] h-[400px] rounded-full bg-cyan-400 blur-[120px] opacity-20 top-[-100px] left-[-100px] animate-pulse"></div>
-      <div className="absolute w-[400px] h-[400px] rounded-full bg-purple-500 blur-[120px] opacity-20 bottom-[-100px] right-[-100px] animate-pulse delay-1000"></div>
+      <div className="absolute w-[400px] h-[400px] rounded-full bg-cyan-400 blur-[120px] opacity-30 top-[-100px] left-[-100px] animate-pulse"></div>
+      <div className="absolute w-[400px] h-[400px] rounded-full bg-purple-500 blur-[120px] opacity-30 bottom-[-100px] right-[-100px] animate-pulse delay-1000"></div>
 
       {/* Hero Content */}
       <div className="relative z-10 text-center text-white max-w-4xl">
@@ -18,19 +19,14 @@ export default function HeroSection() {
         </div>
 
         {/* Branding */}
-        <div className="flex justify-center items-center gap-4 mb-6">
-          <div className="bg-gradient-to-r from-cyan-400 to-purple-500 p-3 rounded-xl shadow-lg">
-            <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold">
-            <span className="bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 bg-clip-text text-transparent animate-text">
-              Procure
-            </span>
-            AI
-          </h1>
-        </div>
+        <div className="mb-4">
+  <img
+    src={logo}
+    alt="BuySmart Logo"
+    className="w-[90%] sm:w-[50%] max-w-[600px] mx-auto h-auto drop-shadow-lg"
+  />
+</div>
+
 
         {/* Headline */}
         <h2 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-4">

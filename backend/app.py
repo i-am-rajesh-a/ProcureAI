@@ -1,187 +1,287 @@
-import os
-import json
-import traceback
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from dotenv import load_dotenv
-import google.generativeai as genai
+from pymongo import MongoClient
+from bson.objectid import ObjectId, InvalidId
+from datetime import datetime
+import os
+import json
+from register import register
+from login import login
+from api.auth.google.auth_routes import google_auth
 
-from prompts import build_prompt
-from vendor_logic import score_vendors
-
-# --- Google Auth imports ---
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-
-load_dotenv()
 app = Flask(__name__)
-CORS(app)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel(model_name="models/gemini-1.5-flash")  
+# Configure CORS to allow cross-origin requests
+CORS(app, 
+     origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization", "X-User-Id"],
+     supports_credentials=True)
 
-with open("data/vendors.json") as f:
-    vendors = json.load(f)
+# MongoDB connection
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/procurement_db")
+client = MongoClient(MONGO_URI)
+db = client.procurement_db
+
+# Load vendors data from JSON file
+def load_vendors_data():
+    try:
+        vendors_file_path = os.path.join(os.path.dirname(__file__), "data", "vendors.json")
+        if os.path.exists(vendors_file_path):
+            with open(vendors_file_path, 'r', encoding='utf-8') as file:
+                vendors_data = json.load(file)
+                print(f"Successfully loaded {len(vendors_data)} vendors from vendors.json")
+                return vendors_data
+        else:
+            print(f"Warning: Vendors file not found at {vendors_file_path}")
+            return []
+    except json.JSONDecodeError as e:
+        print(f"Error parsing vendors.json: {e}")
+        return []
+    except Exception as e:
+        print(f"Error loading vendors data: {e}")
+        return []
+
+VENDORS_DATA = load_vendors_data()
+
+@app.route("/api/chat/start", methods=["POST"])
+def start_chat_session():
+    try:
+        data = request.get_json()
+        user_id = data.get("userId")
+        product_type = data.get("productType", "General Chat")
+
+        if not user_id:
+            return jsonify({"error": "userId is required"}), 400
+
+        try:
+            user_obj_id = ObjectId(user_id)
+        except InvalidId:
+            return jsonify({"error": "Invalid userId format"}), 400
+
+        session_id = str(ObjectId())
+
+        session_doc = {
+            "sessionId": session_id,
+            "userId": user_obj_id,
+            "productType": product_type,
+            "title": f"Chat about {product_type}",
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+            "messages": [],
+            "state": {
+                "stage": "initial",
+                "productType": "",
+                "questions": [],
+                "attributes": {},
+                "currentQuestionIndex": 0,
+                "quantity": 1,
+                "location": "Unknown",
+                "timeline": "",
+                "procurementValue": "",
+                "approach": "",
+                "wocCriteria": "",
+                "suppliers": "",
+                "finalWocJustification": ""
+            }
+        }
+
+        result = db.chatSessions.insert_one(session_doc)
+
+        if result.inserted_id:
+            return jsonify({"sessionId": session_id, "message": "Chat session started successfully"}), 201
+        else:
+            return jsonify({"error": "Failed to create chat session"}), 500
+
+    except Exception as e:
+        print(f"Error starting chat session: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/chat/save", methods=["POST"])
+def save_chat():
+    try:
+        data = request.get_json()
+        session_id = data.get("sessionId")
+        user_id = data.get("userId")
+        from_field = data.get("from")
+        text = data.get("text")
+        timestamp = data.get("timestamp")
+        state = data.get("state", {})
+
+        if not all([session_id, user_id, from_field, text]):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        try:
+            user_obj_id = ObjectId(user_id)
+        except InvalidId:
+            return jsonify({"error": "Invalid userId format"}), 400
+
+        message = {
+            "role": from_field,
+            "content": text,
+            "timestamp": datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.utcnow()
+        }
+
+        update_result = db.chatSessions.update_one(
+            {"sessionId": session_id, "userId": user_obj_id},
+            {"$push": {"messages": message}, "$set": {"state": state, "updatedAt": datetime.utcnow()}},
+        )
+
+        if update_result.modified_count > 0:
+            return jsonify({"message": "Chat saved successfully"}), 200
+        else:
+            return jsonify({"error": "Failed to save message or session not found"}), 404
+
+    except Exception as e:
+        print(f"Error saving chat: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/chat/sessions/<user_id>", methods=["GET"])
+def get_chat_sessions(user_id):
+    try:
+        user_obj_id = ObjectId(user_id)
+        sessions = db.chatSessions.find({"userId": user_obj_id}).sort("updatedAt", -1)
+        result = [{
+            "sessionId": session["sessionId"],
+            "title": session.get("title", "General Chat"),
+            "productType": session.get("productType", "General Chat"),
+            "createdAt": session["createdAt"].isoformat(),
+            "updatedAt": session["updatedAt"].isoformat(),
+            "messageCount": len(session.get("messages", []))
+        } for session in sessions]
+        return jsonify(result), 200
+    except InvalidId:
+        return jsonify({"error": "Invalid userId format"}), 400
+    except Exception as e:
+        print(f"Error fetching chat sessions: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/chat/session/<session_id>", methods=["GET"])
+def get_chat_session(session_id):
+    try:
+        user_id = request.args.get("userId")
+        if not user_id:
+            return jsonify({"error": "userId parameter is required"}), 400
+
+        user_obj_id = ObjectId(user_id)
+        session = db.chatSessions.find_one({"sessionId": session_id, "userId": user_obj_id})
+        if not session:
+            return jsonify({"error": "Session not found"}), 404
+
+        messages = [{
+            "from": msg["role"],
+            "text": msg["content"],
+            "timestamp": msg["timestamp"].isoformat()
+        } for msg in session.get("messages", [])]
+
+        return jsonify({
+            "sessionId": session["sessionId"],
+            "title": session.get("title", "General Chat"),
+            "productType": session.get("productType", "General Chat"),
+            "messages": messages,
+            "state": session.get("state"),
+            "createdAt": session["createdAt"].isoformat(),
+            "updatedAt": session["updatedAt"].isoformat()
+        }), 200
+    except InvalidId:
+        return jsonify({"error": "Invalid userId format"}), 400
+    except Exception as e:
+        print(f"Error fetching chat session: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/chat/delete/<session_id>", methods=["DELETE"])
+def delete_chat_session(session_id):
+    try:
+        user_id = request.args.get("userId")
+        if not user_id:
+            return jsonify({"error": "userId parameter is required"}), 400
+
+        user_obj_id = ObjectId(user_id)
+        delete_result = db.chatSessions.delete_one({"sessionId": session_id, "userId": user_obj_id})
+
+        if delete_result.deleted_count > 0:
+            return jsonify({"message": "Session deleted successfully"}), 200
+        else:
+            return jsonify({"error": "Session not found"}), 404
+    except InvalidId:
+        return jsonify({"error": "Invalid userId format"}), 400
+    except Exception as e:
+        print(f"Error deleting chat session: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/chat/rename", methods=["PUT"])
+def rename_chat_session():
+    try:
+        data = request.get_json()
+        session_id = data.get("sessionId")
+        user_id = data.get("userId")
+        new_title = data.get("newTitle")
+
+        if not all([session_id, user_id, new_title]):
+            return jsonify({"error": "Missing required fields"}), 400
+
+        user_obj_id = ObjectId(user_id)
+        update_result = db.chatSessions.update_one(
+            {"sessionId": session_id, "userId": user_obj_id},
+            {"$set": {"title": new_title, "updatedAt": datetime.utcnow()}},
+        )
+
+        if update_result.modified_count > 0:
+            return jsonify({"message": "Session renamed successfully"}), 200
+        else:
+            return jsonify({"error": "Session not found"}), 404
+    except InvalidId:
+        return jsonify({"error": "Invalid userId format"}), 400
+    except Exception as e:
+        print(f"Error renaming chat session: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route("/generate_questions", methods=["POST"])
 def generate_questions():
     try:
-        request_data = request.json
-        product = request_data.get("product", "")
-        quantity = request_data.get("quantity", 1)
-        
-        print(f"Generating questions for: {product} (quantity: {quantity})")
-        
-        question_prompt = f"""
-You are a procurement assistant. A user wants to buy {quantity} {product}. 
-Generate exactly 5 important questions to help determine the best specifications for this product.
-
-Requirements:
-- Each question should be specific and relevant to {product}
-- Questions should help determine key specifications, quality, features, usage, and budget
-- Avoid generic questions - make them product-specific
-- Return ONLY a JSON array with this exact format:
-
-[
-  {{"key": "specification_name", "question": "What specifications do you need for the {product}?"}},
-  {{"key": "quality", "question": "What quality level do you prefer?"}},
-  {{"key": "features", "question": "Any specific features required?"}},
-  {{"key": "usage", "question": "How will you use these {product}?"}},
-  {{"key": "budget", "question": "What's your budget range per unit?"}}
-]
-
-Make each question specific to {product}. For example:
-- For chairs: ask about material, ergonomics, size, mobility features
-- For electronics: ask about specifications, brand preference, warranty
-- For clothing: ask about sizes, materials, style, colors
-- For tools: ask about power source, precision level, durability
-- For food items: ask about ingredients, dietary restrictions, packaging
-
-Generate 5 relevant questions for {product} now:
-"""
-        
-        response = model.generate_content(question_prompt)
-        response_text = response.text.strip()
-        
-        print(f"AI Response for questions: {response_text}")
-        
-        # Try to parse the JSON response
-        try:
-            # Clean the response - remove any markdown formatting
-            if response_text.startswith("```json"):
-                response_text = response_text.replace("```json", "").replace("```", "").strip()
-            elif response_text.startswith("```"):
-                response_text = response_text.replace("```", "").strip()
-            
-            questions = json.loads(response_text)
-            
-            # Validate the structure
-            if not isinstance(questions, list) or len(questions) != 5:
-                raise ValueError("Invalid question format")
-            
-            for q in questions:
-                if not isinstance(q, dict) or "key" not in q or "question" not in q:
-                    raise ValueError("Invalid question structure")
-            
-            print(f"Generated questions: {questions}")
-            return jsonify({"questions": questions})
-            
-        except (json.JSONDecodeError, ValueError) as e:
-            print(f"Error parsing AI response: {e}")
-            # Fallback to generic questions
-            fallback_questions = [
-                {"key": "specifications", "question": f"What specific requirements do you have for the {product}?"},
-                {"key": "quality", "question": "What quality level do you need? (e.g., premium, standard, budget)"},
-                {"key": "features", "question": "Any specific features or characteristics required?"},
-                {"key": "usage", "question": "How will these be used? (e.g., daily use, occasional, heavy duty)"},
-                {"key": "budget_range", "question": "What's your budget range per unit?"}
-            ]
-            return jsonify({"questions": fallback_questions})
-            
-    except Exception as e:
-        print(f"Error in generate_questions: {e}")
-        traceback.print_exc()
-        # Return fallback questions on any error
-        fallback_questions = [
-            {"key": "specifications", "question": "What specific requirements do you have for this product?"},
-            {"key": "quality", "question": "What quality level do you need?"},
-            {"key": "features", "question": "Any specific features required?"},
-            {"key": "usage", "question": "How will you use this product?"},
+        data = request.get_json()
+        product = data.get("product", "")
+        questions = [
+            {"key": "specifications", "question": f"What specific requirements do you have for the {product}?"},
+            {"key": "quality", "question": "What quality level do you need? (e.g., premium, standard, budget)"},
+            {"key": "features", "question": "Any specific features or characteristics required?"},
+            {"key": "usage", "question": "How will these be used? (e.g., office use, industrial, personal)"},
             {"key": "budget_range", "question": "What's your budget range per unit?"}
         ]
-        return jsonify({"questions": fallback_questions})
-
-@app.route("/recommend", methods=["POST"])
-def recommend():
-    try:
-        request_data = request.json
-        print("Received request data:", request_data)
-
-        # Handle enhanced request data with attributes
-        if "attributes" in request_data and request_data["attributes"]:
-            # Format the item description with attributes
-            attributes_text = ", ".join([f"{k}: {v}" for k, v in request_data["attributes"].items()])
-            enhanced_item = f"{request_data.get('product_type', request_data.get('item', ''))} ({attributes_text})"
-            request_data["item"] = enhanced_item
-            
-            print("Enhanced item description:", enhanced_item)
-
-        top_vendors = score_vendors(vendors, request_data)[:3]
-        print("Top vendors:", top_vendors)
-
-        # Use the existing build_prompt function
-        prompt = build_prompt(request_data, top_vendors)
-        print("Prompt:", prompt)
-
-        response = model.generate_content(prompt)
-        print("AI Response:", response.text)
-
-        return jsonify({
-            "recommendation": response.text,
-            "vendors": top_vendors,
-        })
-
+        return jsonify({"questions": questions}), 200
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        print(f"Error generating questions: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
-# ---------------- GOOGLE AUTH ENDPOINT ----------------
-@app.route("/api/auth/google", methods=["POST"])
-def google_auth():
+@app.route("/api/vendors", methods=["GET"])
+def get_vendors():
     try:
-        token = request.json.get("token")
-        if not token:
-            return jsonify({"success": False, "error": "No token provided"}), 400
+        product_type = request.args.get('product_type')
+        budget_min = request.args.get('budget_min', type=float)
+        budget_max = request.args.get('budget_max', type=float)
+        location = request.args.get('location')
+        rating_min = request.args.get('rating_min', type=float)
+        limit = request.args.get('limit', type=int, default=50)
 
-        # Use the backend's GOOGLE_CLIENT_ID (set in your backend .env)
-        google_client_id = os.getenv("GOOGLE_CLIENT_ID")
-        if not google_client_id:
-            return jsonify({"success": False, "error": "Google client ID not set in backend"}), 500
+        budget_range = None
+        if budget_min is not None or budget_max is not None:
+            budget_range = (budget_min or 0, budget_max or float('inf'))
 
-        # Verify the token with Google
-        idinfo = id_token.verify_oauth2_token(
-            token,
-            google_requests.Request(),
-            google_client_id
-        )
+        filtered_vendors = [v for v in VENDORS_DATA
+                            if (not product_type or product_type.lower() in v.get('category', '').lower()
+                                or any(product_type.lower() in item.lower() for item in v.get('items', [])))
+                            and (not budget_range or budget_range[0] <= v.get('price', 0) <= budget_range[1])
+                            and (not location or location.lower() in v.get('location', '').lower())
+                            and (not rating_min or v.get('rating', 0) >= rating_min)]
 
-        # idinfo now contains user info (email, name, etc.)
-        # Here you would typically create or fetch the user in your DB
-
-        # Example: return user info (never return the token itself)
-        return jsonify({
-            "success": True,
-            "user": {
-                "email": idinfo.get("email"),
-                "name": idinfo.get("name"),
-                "picture": idinfo.get("picture"),
-                "sub": idinfo.get("sub"),
-            }
-        })
-
+        return jsonify({"vendors": filtered_vendors[:limit], "total": len(filtered_vendors)}), 200
     except Exception as e:
-        print("Google Auth Error:", e)
-        return jsonify({"success": False, "error": str(e)}), 400
+        print(f"Error fetching vendors: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
+
+app.register_blueprint(register)
+app.register_blueprint(login)
+app.register_blueprint(google_auth)
 
 if __name__ == "__main__":
     app.run(debug=True)

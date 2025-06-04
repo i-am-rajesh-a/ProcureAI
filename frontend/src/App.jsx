@@ -4,7 +4,7 @@ import Chatbot from "./Chatbot";
 import Login from "./Login";
 import Register from "./Register"; 
 import HeroSection from "./Herosection";
-import"./App.css";
+import "./App.css";
 function DashboardComponent() {
   return (
     <div style={{ padding: 40, textAlign: "center" }}>
@@ -14,14 +14,16 @@ function DashboardComponent() {
 }
 
 export default function App() {
+  // Use a real MongoDB ObjectId here!
+  const user = JSON.parse(localStorage.getItem("user"));
+
   return (
     <Routes>
       <Route path="/" element={<HeroSection />} />
-      {/* ⬅️ Home route */}
       <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} /> {/* ⬅️ Register route */}
+      <Route path="/register" element={<Register />} />
       <Route path="/home" element={<HomePage />} />
-      <Route path="/chatbot" element={<Chatbot />} />
+      <Route path="/chatbot" element={user && user._id ? <Chatbot userId={user._id} /> : <div>Loading...</div>} />
       <Route path="/dashboard" element={<DashboardComponent />} />
     </Routes>
   );
