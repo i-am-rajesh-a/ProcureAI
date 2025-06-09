@@ -3,70 +3,6 @@ import PropTypes from "prop-types";
 import axios from "axios";
 import 'animate.css';
 
-// Mock vendors data (simulating dynamic data from web search)
-const mockVendors = [
-  {
-    name: "TechTrend Innovations",
-    category: "goods",
-    items: ["laptops", "computers", "workstations"],
-    description: "High-performance laptops and workstations for professional use",
-    price: 55000,
-    location: "Mumbai, India",
-    delivery_days: 7,
-    rating: 4.8,
-    certified: true,
-    contact: "contact@techtrend.com"
-  },
-  {
-    name: "OfficeWorks Ltd",
-    category: "goods",
-    items: ["office furniture", "chairs", "desks"],
-    description: "Ergonomic office furniture for modern workplaces",
-    price: 6000,
-    location: "Delhi, India",
-    delivery_days: 5,
-    rating: 4.5,
-    certified: true,
-    contact: "sales@officeworks.com"
-  },
-  {
-    name: "CleanPro Services",
-    category: "services",
-    items: ["cleaning services", "sanitation"],
-    description: "Professional cleaning and sanitation services for offices and homes",
-    price: 12000,
-    location: "Bangalore, India",
-    delivery_days: 3,
-    rating: 4.7,
-    certified: false,
-    contact: "info@cleanpro.com"
-  },
-  {
-    name: "SoftPeak Solutions",
-    category: "software",
-    items: ["software licenses", "saas", "cloud solutions"],
-    description: "Enterprise software solutions with cloud and on-premise options",
-    price: 30000,
-    location: "Hyderabad, India",
-    delivery_days: 2,
-    rating: 4.9,
-    certified: true,
-    contact: "support@softpeak.com"
-  },
-  {
-    name: "BuildStrong Constructions",
-    category: "construction",
-    items: ["construction", "renovation", "infrastructure"],
-    description: "Commercial construction and renovation services",
-    price: 1200000,
-    location: "Chennai, India",
-    delivery_days: 90,
-    rating: 4.6,
-    certified: true,
-    contact: "projects@buildstrong.com"
-  }
-];
-
 const isValidMongoObjectId = (id) => typeof id === "string" && /^[a-f\d]{24}$/i.test(id);
 
 const Chatbot = ({ userId }) => {
@@ -94,13 +30,13 @@ const Chatbot = ({ userId }) => {
     currentQuestion: null,
     questionsQueue: [],
     confirmedProduct: null,
+    products: [],
   });
   const [chatSessions, setChatSessions] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editedTitle, setEditedTitle] = useState("");
-  const [vendors, setVendors] = useState(mockVendors);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -128,35 +64,47 @@ const Chatbot = ({ userId }) => {
 
   const saveMessageToSession = async (sessionId, message) => {
     if (!sessionId) {
-      console.error("Cannot save message: no sessionId");
-      return;
+        console.error("Cannot save message: no sessionId");
+        return;
     }
+    
     try {
-      await axios.post(
-        "http://localhost:5000/api/chat/save",
-        {
-          sessionId,
-          userId,
-          from: message.from,
-          text: message.text,
-          timestamp: message.timestamp,
-          state: conversationState,
-        },
-        { headers: { "X-User-Id": userId } }
-      );
+        const response = await axios.post(
+            "http://localhost:5000/api/chat/save",
+            {
+                sessionId,
+                userId,
+                from: message.from,
+                text: message.text,
+                timestamp: message.timestamp,
+                state: conversationState
+            },
+            {
+                headers: {
+                    "X-User-Id": userId,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+
+        if (!response.data.success) {
+            throw new Error(response.data.error || "Failed to save message");
+        }
+        
     } catch (error) {
-      console.error("Error saving message:", error);
+        console.error("Error saving message:", error.response?.data || error.message);
+        // Don't throw the error - allow the chat to continue even if saving fails
     }
   };
 
   const startNewSession = async (productType = "General Chat") => {
     try {
-      const response = await axios.post(
+      const { data: { sessionId } } = await axios.post(
         "http://localhost:5000/api/chat/start",
         { userId, productType },
         { headers: { "X-User-Id": userId } }
       );
-      return response.data.sessionId;
+      return sessionId;
     } catch (error) {
       console.error("Error creating new session:", error);
       return null;
@@ -165,38 +113,38 @@ const Chatbot = ({ userId }) => {
 
   const loadSession = async (sessionId) => {
     try {
-      const response = await axios.get(
+      const { data } = await axios.get(
         `http://localhost:5000/api/chat/session/${sessionId}?userId=${userId}`,
         { headers: { "X-User-Id": userId } }
       );
-      return response.data;
+      return data;
     } catch (error) {
-      console.error("Error loading session:", error);
+      console.error("Error retrieving session:", error);
       return null;
     }
   };
 
   const deleteSession = async (sessionId) => {
     try {
-      await axios.delete(
+      const response = await axios.delete(
         `http://localhost:5000/api/chat/delete/${sessionId}?userId=${userId}`,
         { headers: { "X-User-Id": userId } }
       );
-      return true;
+      return response.status === 200;
     } catch (error) {
-      console.error("Error deleting session:", error);
+      console.error("Error deleting:", error);
       return false;
     }
   };
 
   const renameSession = async (sessionId, newTitle) => {
     try {
-      await axios.put(
+      const response = await axios.put(
         "http://localhost:5000/api/chat/rename",
         { sessionId, userId, newTitle },
         { headers: { "X-User-Id": userId } }
       );
-      return true;
+      return response.status === 200;
     } catch (error) {
       console.error("Error renaming session:", error);
       return false;
@@ -231,6 +179,7 @@ const Chatbot = ({ userId }) => {
         currentQuestion: null,
         questionsQueue: [],
         confirmedProduct: null,
+        products: [],
       });
 
       const sessionsResponse = await axios.get(
@@ -280,6 +229,7 @@ const Chatbot = ({ userId }) => {
           currentQuestion: null,
           questionsQueue: [],
           confirmedProduct: null,
+          products: [],
         }
       );
       setIsSidebarOpen(false);
@@ -313,8 +263,8 @@ const Chatbot = ({ userId }) => {
     }
   };
 
-  const handleGeneralInput = async (inputText) => {
-    const lowerInput = inputText.toLowerCase().trim();
+  const handleGeneralInput = async (userInput) => {
+    const lowerInput = userInput.toLowerCase().trim();
     if (lowerInput.match(/(bye|goodbye|see you|see ya|take care)/)) {
       const botReply = {
         from: "bot",
@@ -368,7 +318,7 @@ const Chatbot = ({ userId }) => {
     if (lowerInput.match(/(who are you|what are you|about you|your name)/)) {
       const botReply = {
         from: "bot",
-        text: "I'm Procure AI, your intelligent procurement assistant! 🤖 I follow government procurement processes to help you acquire goods and services efficiently. What would you like to purchase today?",
+text: "I'm Procure AI, your intelligent procurement assistant! 🤖 I follow government procurement processes to help you acquire goods and services efficiently. What would you like to purchase today?",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
@@ -414,208 +364,8 @@ const Chatbot = ({ userId }) => {
     };
   };
 
-  const generateDynamicQuestions = (procurementType) => {
-    const { productType, category, keywords, specificAttributes } = procurementType;
-    const questions = [];
-    const usedAspects = new Set();
-
-    const createQuestion = (aspect, questionText, expectedTerms) => ({
-      question: questionText,
-      key: aspect,
-      field: `requirements.${aspect}`,
-      validation: (answer) => answer.trim().length > 2,
-      relevanceCheck: (answer) => {
-        const lowerAnswer = answer.toLowerCase();
-        return expectedTerms.some(term => lowerAnswer.includes(term.toLowerCase())) ||
-               lowerAnswer.split(' ').length > 2;
-      },
-      relevancePrompt: `Your response for ${productType} seems unrelated to ${aspect.replace(/([A-Z])/g, ' $1').toLowerCase()}. Please provide specific details (e.g., ${expectedTerms.slice(0, 3).join(', ')}).`,
-    });
-
-    const generateSingleQuestion = () => {
-      const possibleAspects = [
-        'functionality', 'specifications', 'environment', 'constraints', 'compatibility',
-        'durability', 'aesthetics', 'scope', 'schedule', 'expertise', 'regulations', 'deployment'
-      ].filter(aspect => !usedAspects.has(aspect));
-      
-      if (!possibleAspects.length) return null;
-
-      const aspect = possibleAspects[Math.floor(Math.random() * possibleAspects.length)];
-      let questionText, expectedTerms;
-
-      if (aspect === 'functionality') {
-        if (category === 'goods') {
-          questionText = specificAttributes.isPortable
-            ? `Which features ensure the ${productType} meets your mobility needs?`
-            : `What core features are critical for the performance of ${productType}?`;
-          expectedTerms = keywords.concat(['feature', 'performance', 'size', 'capacity']);
-        } else if (category === 'services') {
-          questionText = specificAttributes.isSpecialized
-            ? `What unique tasks or skills are needed for this ${productType}?`
-            : `What primary activities must the ${productType} deliver?`;
-          expectedTerms = ['task', 'skill', 'activity', 'service'];
-        } else if (category === 'software') {
-          questionText = specificAttributes.isLargeScale
-            ? `What advanced features are required for ${productType} scalability?`
-            : `What key functionalities should the ${productType} provide?`;
-          expectedTerms = ['function', 'scale', 'module', 'tool'];
-        } else if (category === 'construction') {
-          questionText = `What key project goals define the ${productType} requirements?`;
-          expectedTerms = ['goal', 'design', 'structure', 'objective'];
-        }
-      } else if (aspect === 'environment') {
-        if (category === 'goods') {
-          questionText = specificAttributes.hasEnvironment
-            ? `In what specific setting will the ${productType} be primarily used?`
-            : `What conditions will the ${productType} operate in?`;
-          expectedTerms = ['setting', 'office', 'outdoor', 'home', 'industrial'];
-        } else if (category === 'services') {
-          questionText = specificAttributes.isUrgent
-            ? `What urgent locations or scenarios require ${productType}?`
-            : `Where will the ${productType} be carried out?`;
-          expectedTerms = ['location', 'site', 'area', 'building'];
-        } else if (category === 'software') {
-          questionText = `What operational context will the ${productType} support?`;
-          expectedTerms = ['context', 'team', 'system', 'workflow'];
-        } else if (category === 'construction') {
-          questionText = `What environmental factors affect the ${productType} site?`;
-          expectedTerms = ['site', 'terrain', 'climate', 'location'];
-        }
-      } else if (aspect === 'constraints') {
-        if (category === 'goods') {
-          questionText = specificAttributes.isEcoFriendly
-            ? `What eco-friendly requirements must the ${productType} meet?`
-            : `What specific restrictions apply to the ${productType}?`;
-          expectedTerms = ['restriction', 'limit', 'standard', 'material'];
-        } else if (category === 'services') {
-          questionText = specificAttributes.isSpecialized
-            ? `What certifications or standards are required for ${productType}?`
-            : `What limitations or preferences shape the ${productType}?`;
-          expectedTerms = ['certification', 'standard', 'schedule', 'limit'];
-        } else if (category === 'software') {
-          questionText = specificAttributes.isUrgent
-            ? `What time-sensitive needs influence ${productType} deployment?`
-            : `What specific constraints apply to ${productType} implementation?`;
-          expectedTerms = ['time', 'constraint', 'license', 'security'];
-        } else if (category === 'construction') {
-          questionText = `What regulatory or logistical constraints impact ${productType}?`;
-          expectedTerms = ['regulation', 'logistics', 'compliance', 'budget'];
-        }
-      } else if (aspect === 'compatibility') {
-        if (category === 'goods') {
-          questionText = specificAttributes.hasBrand
-            ? `What systems or brands should ${productType} be compatible with, like ${specificAttributes.hasBrand}?`
-            : `What other equipment should ${productType} work with?`;
-          expectedTerms = ['system', 'brand', 'device', 'compatibility'];
-        } else if (category === 'services') {
-          questionText = `What existing processes should ${productType} align with?`;
-          expectedTerms = ['process', 'workflow', 'system', 'alignment'];
-        } else if (category === 'software') {
-          questionText = `What platforms or tools must ${productType} integrate with?`;
-          expectedTerms = ['platform', 'tool', 'integration', 'API'];
-        } else if (category === 'construction') {
-          questionText = `What existing structures must ${productType} integrate with?`;
-          expectedTerms = ['structure', 'integration', 'building', 'design'];
-        }
-      } else if (aspect === 'aesthetics') {
-        if (category === 'goods') {
-          questionText = specificAttributes.hasColor
-            ? `What visual or design preferences do you have for ${productType}?`
-            : `What aesthetic qualities should ${productType} have?`;
-          expectedTerms = ['color', 'design', 'style', 'appearance'];
-        } else if (category === 'services') {
-          questionText = `What professional presentation is expected from ${productType}?`;
-          expectedTerms = ['appearance', 'professional', 'standard'];
-        } else if (category === 'construction') {
-          questionText = `What aesthetic or architectural style should ${productType} follow?`;
-          expectedTerms = ['style', 'architecture', 'design', 'appearance'];
-        }
-      } else if (aspect === 'durability') {
-        if (category === 'goods') {
-          questionText = specificAttributes.isHighEnd
-            ? `What durability standards are needed for premium ${productType}?`
-            : `How durable should the ${productType} be for its use?`;
-          expectedTerms = ['durability', 'strength', 'lifespan', 'quality'];
-        } else if (category === 'construction') {
-          questionText = `What durability or safety standards must ${productType} meet?`;
-          expectedTerms = ['durability', 'safety', 'standard', 'quality'];
-        }
-      } else if (aspect === 'scope') {
-        if (category === 'services') {
-          questionText = specificAttributes.isLargeScale
-            ? `What is the full scope of this large-scale ${productType}?`
-            : `What specific deliverables define ${productType}?`;
-          expectedTerms = ['scope', 'deliverable', 'task', 'service'];
-        } else if (category === 'construction') {
-          questionText = `What is the overall scope of the ${productType} project?`;
-          expectedTerms = ['scope', 'project', 'task', 'objective'];
-        }
-      } else if (aspect === 'schedule') {
-        if (category === 'services') {
-          questionText = specificAttributes.isUrgent
-            ? `What scheduling priorities drive urgency for ${productType}?`
-            : `What is the preferred schedule for ${productType} delivery?`;
-          expectedTerms = ['schedule', 'time', 'frequency', 'deadline'];
-        } else if (category === 'construction') {
-          questionText = `What scheduling requirements shape ${productType}?`;
-          expectedTerms = ['schedule', 'timeline', 'deadline', 'milestone'];
-        }
-      } else if (aspect === 'expertise') {
-        if (category === 'services') {
-          questionText = specificAttributes.isSpecialized
-            ? `What expertise or qualifications are critical for ${productType}?`
-            : `What level of professional expertise is needed for ${productType}?`;
-          expectedTerms = ['expertise', 'qualification', 'skill', 'certification'];
-        } else if (category === 'software') {
-          questionText = `What technical expertise is required for ${productType} support?`;
-          expectedTerms = ['expertise', 'support', 'technical', 'skill'];
-        }
-      } else if (aspect === 'regulations') {
-        if (category === 'construction') {
-          questionText = specificAttributes.isEcoFriendly
-            ? `What environmental regulations apply to ${productType}?`
-            : `What compliance standards must ${productType} adhere to?`;
-          expectedTerms = ['regulation', 'compliance', 'standard', 'law'];
-        } else if (category === 'services') {
-          questionText = `What regulatory standards apply to ${productType}?`;
-          expectedTerms = ['regulation', 'standard', 'compliance'];
-        }
-      } else if (aspect === 'deployment') {
-        if (category === 'software') {
-          questionText = specificAttributes.isLargeScale
-            ? `What deployment strategy is needed for ${productType} scale?`
-            : `How should ${productType} be deployed?`;
-          expectedTerms = ['deployment', 'cloud', 'on-premise', 'install'];
-        }
-      }
-
-      if (!questionText) {
-        questionText = `What specific ${aspect} requirements are needed for ${productType}?`;
-        expectedTerms = keywords.concat([aspect, productType.toLowerCase()]);
-      }
-
-      usedAspects.add(aspect);
-      return createQuestion(aspect, questionText, expectedTerms);
-    };
-
-    for (let i = 0; i < 3; i++) {
-      const question = generateSingleQuestion();
-      if (question) {
-        questions.push(question);
-      }
-    }
-
-    return questions;
-  };
-
   const estimateProcurementValue = (requirements, quantity, budget) => {
-    const { productType } = requirements;
-    const lowerType = productType.toLowerCase();
-    let unitPrice = 1000;
-    if (/laptop|computer|device/.test(lowerType)) unitPrice = 50000;
-    else if (/chair|furniture/.test(lowerType)) unitPrice = 5000;
-    else if (/service|cleaning|maintenance/.test(lowerType)) unitPrice = 10000;
-    else if (/construction|building/.test(lowerType)) unitPrice = 1000000;
+    const unitPrice = requirements.unitPrice || 1000;
     const qty = quantity ? parseInt(quantity) : 1;
     const estimatedValue = unitPrice * qty;
     return Math.min(estimatedValue, budget || estimatedValue);
@@ -666,196 +416,203 @@ const Chatbot = ({ userId }) => {
     return questions;
   };
 
-  const findPotentialSuppliers = (procurementDetails) => {
-    const { productType, category, quantity, budget } = procurementDetails.requirements;
-    const lowerType = productType.toLowerCase();
-    
-    let relevantVendors = vendors.filter(vendor => {
-      const matchesCategory = vendor.category.toLowerCase().includes(category.toLowerCase());
-      const matchesItems = vendor.items.some(item => item.toLowerCase().includes(lowerType.split(' ')[0]));
-      const withinBudget = budget ? vendor.price * (quantity || 1) <= budget : true;
-      return (matchesCategory || matchesItems) && withinBudget;
-    });
-
-    if (relevantVendors.length === 0) {
-      relevantVendors = vendors.filter(vendor =>
-        vendor.description.toLowerCase().includes(lowerType.split(' ')[0]) && 
-        (budget ? vendor.price * (quantity || 1) <= budget : true)
-      );
-    }
-
-    const scoredVendors = relevantVendors.map(vendor => {
-      let score = 0;
-      score += vendor.rating * 10;
-      if (vendor.certified) score += 20;
-      if (procurementDetails.requirements.someField && vendor.description.toLowerCase().includes(
-        procurementDetails.requirements.someField.toLowerCase().split(' ')[0]
-      )) {
-        score += 15;
-      }
-      if (procurementDetails.budget && vendor.price * (quantity || 1) <= procurementDetails.budget) {
-        score += 30;
-      }
-      const timelineDays = procurementDetails.timeline ? parseInt(procurementDetails.timeline) : 7;
-      if (vendor.delivery_days <= timelineDays) {
-        score += 10;
-      }
-      return { ...vendor, score };
-    });
-
-    return scoredVendors.sort((a, b) => b.score - a.score);
+  const sanitizeKeyword = (keyword) => {
+    return keyword.trim().replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 50);
   };
 
   const handleInitialState = async (userInput) => {
     const generalResponse = await handleGeneralInput(userInput);
     if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
+        if (generalResponse.shouldEnd) {
+            setConversationState(prev => ({ ...prev, stage: "initial" }));
+        }
+        return;
     }
+
     const procurementType = analyzeProcurementType(userInput);
     if (!procurementType.productType || procurementType.productType.length < 3) {
+        const botReply = {
+            from: "bot",
+            text: "Please provide more details about what you'd like to procure. For example: 'office chairs', '50 laptops', or 'cleaning services'.",
+            timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, botReply]);
+        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+        return;
+    }
+
+    const sanitizedKeyword = sanitizeKeyword(procurementType.productType);
+    try {
+        const response = await axios.get("http://localhost:5000/api/amazon/search", {
+            params: {
+                keyword: sanitizedKeyword,
+                country: "us",
+                page: 1
+            },
+            headers: { "X-User-Id": userId }
+        });
+
+        // Check for successful response but empty products
+        if (response.data.success && (!response.data.data?.products || response.data.data.products.length === 0)) {
+            const botReply = {
+                from: "bot",
+                text: `I couldn't find any products matching "${sanitizedKeyword}" on Amazon. Let's proceed with your requirements. How many ${sanitizedKeyword} do you need?`,
+                timestamp: new Date().toISOString(),
+            };
+            setMessages((msgs) => [...msgs, botReply]);
+            if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+            
+            setConversationState({
+                stage: "asking_quantity",
+                procurementDetails: {
+                    requirements: {
+                        productType: procurementType.productType,
+                        category: procurementType.category,
+                        keywords: procurementType.keywords,
+                        specificAttributes: procurementType.specificAttributes,
+                        unitPrice: 1000 // Default price when no products found
+                    }
+                },
+                currentQuestion: {
+                    question: `How many ${procurementType.productType} do you need?`,
+                    key: "quantity",
+                    field: "quantity",
+                    validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
+                },
+                confirmedProduct: null,
+                products: []
+            });
+            return;
+        }
+
+        // Check for API errors
+        if (response.data.error) {
+            throw new Error(response.data.details || response.data.error);
+        }
+
+        const products = response.data.data?.products || [];
+        
+        // Proceed with showing product options if available
+        if (products.length > 0) {
+            const productList = products.slice(0, 3).map((p, idx) => 
+                `${idx + 1}. ${p.title}\nPrice: $${p.price || 'N/A'}`
+            ).join('\n\n');
+
+            const botReply = {
+                from: "bot",
+                text: `I found these options:\n\n${productList}\n\nWhich option interests you? (Enter 1-3)`,
+                timestamp: new Date().toISOString(),
+            };
+            setMessages((msgs) => [...msgs, botReply]);
+            if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+            setConversationState({
+                stage: "selecting_product",
+                procurementDetails: {
+                    requirements: {
+                        productType: procurementType.productType,
+                        category: procurementType.category,
+                        keywords: procurementType.keywords,
+                        specificAttributes: procurementType.specificAttributes
+                    }
+                },
+                products: products.slice(0, 3),
+                currentQuestion: {
+                    question: "Please select a product (1-3):",
+                    key: "product_selection",
+                    validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) >= 1 && parseInt(answer) <= 3
+                }
+            });
+        }
+
+    } catch (error) {
+        console.error("Error searching Amazon products:", error);
+        const botReply = {
+            from: "bot",
+            text: `I encountered an error while searching. How many ${procurementType.productType} do you need?`,
+            timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, botReply]);
+        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+        
+        setConversationState({
+            stage: "asking_quantity",
+            procurementDetails: {
+                requirements: {
+                    productType: procurementType.productType,
+                    category: procurementType.category,
+                    keywords: procurementType.keywords,
+                    specificAttributes: procurementType.specificAttributes,
+                    unitPrice: 1000
+                }
+            },
+            currentQuestion: {
+                question: `How many ${procurementType.productType} do you need?`,
+                key: "quantity",
+                validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0
+            },
+            confirmedProduct: null,
+            products: []
+        });
+    }
+  };
+
+  const handleSelectingProduct = async (userInput) => {
+    const selection = parseInt(userInput);
+    if (isNaN(selection)) {
       const botReply = {
         from: "bot",
-        text: "Please provide more details about what you'd like to procure. For example: 'office chairs', '50 laptops', or 'cleaning services'.",
+        text: "Please enter a number between 1 and 3 to select a product",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
       return;
     }
-    const updatedProcurementDetails = {
-      ...conversationState.procurementDetails,
-      requirements: {
-        productType: procurementType.productType,
-        category: procurementType.category,
-        quantity: procurementType.quantity,
-        keywords: procurementType.keywords,
-        specificAttributes: procurementType.specificAttributes,
-      },
+    
+    const products = conversationState.products;
+    if (selection < 1 || selection > products.length) {
+      const botReply = {
+        from: "bot",
+        text: `Please enter a number between 1 and ${products.length}`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      return;
+    }
+    
+    const selectedProduct = products[selection - 1];
+    const confirmedProduct = {
+      productType: conversationState.procurementDetails.requirements.productType,
+      asin: selectedProduct.asin,
+      title: selectedProduct.title,
+      unitPrice: selectedProduct.price || 1000,
     };
-    const requirementsQuestions = generateDynamicQuestions(procurementType);
-    setConversationState({
-      stage: "confirming_product",
-      procurementDetails: updatedProcurementDetails,
-      currentQuestion: requirementsQuestions[0],
-      questionsQueue: requirementsQuestions.slice(1),
-      confirmedProduct: null,
-    });
+    
     const botReply = {
       from: "bot",
-      text: `Thank you for your request to procure ${procurementType.productType}. Let's confirm the exact variety you need.\n\n${requirementsQuestions[0].question}`,
+      text: `Great! You selected: ${selectedProduct.title}. How many do you need?`,
       timestamp: new Date().toISOString(),
     };
     setMessages((msgs) => [...msgs, botReply]);
     if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-  };
-
-  const handleGatheringRequirements = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
-    const { currentQuestion, questionsQueue, procurementDetails } = conversationState;
-    const validation = currentQuestion.validation(userInput);
-    if (!validation) {
-      const botReply = {
-        from: "bot",
-        text: "Please provide a more detailed answer (at least 10 characters) to help confirm the product details.",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      return;
-    }
-    const isRelevant = currentQuestion.relevanceCheck(userInput);
-    if (!isRelevant) {
-      const botReply = {
-        from: "bot",
-        text: currentQuestion.relevancePrompt,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      return;
-    }
-    const fieldPath = currentQuestion.field.split('.');
-    const updatedDetails = { ...procurementDetails };
-    let currentLevel = updatedDetails;
-    for (let i = 0; i < fieldPath.length - 1; i++) {
-      if (!currentLevel[fieldPath[i]]) {
-        currentLevel[fieldPath[i]] = {};
-      }
-      currentLevel = currentLevel[fieldPath[i]];
-    }
-    currentLevel[fieldPath[fieldPath.length - 1]] = userInput;
-    if (questionsQueue.length > 0) {
-      setConversationState({
-        stage: "confirming_product",
-        procurementDetails: updatedDetails,
-        currentQuestion: questionsQueue[0],
-        questionsQueue: questionsQueue.slice(1),
-      });
-      const botReply = {
-        from: "bot",
-        text: questionsQueue[0].question,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-    } else {
-      const confirmedProduct = {
-        productType: procurementDetails.requirements.productType,
-        ...Object.keys(procurementDetails.requirements).reduce((obj, key) => {
-          if (key !== 'productType' && key !== 'category' && key !== 'quantity' && key !== 'keywords' && key !== 'specificAttributes') {
-            obj[key] = procurementDetails.requirements[key] || '';
-          }
-          return obj;
-        }, {}),
-      };
-      setConversationState({
-        stage: "asking_quantity",
-        procurementDetails: updatedDetails,
-        currentQuestion: {
-          question: `How many ${procurementDetails.requirements.productType} do you need?`,
-          key: "quantity",
-          field: "quantity",
-          validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
-        },
-        questionsQueue: [],
-        confirmedProduct,
-      });
-      const botReply = {
-        from: "bot",
-        text: `Thank you for confirming the details for ${procurementDetails.requirements.productType}. How many ${procurementDetails.requirements.productType} do you need?`,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-    }
+    
+    setConversationState({
+      stage: "asking_quantity",
+      procurementDetails: conversationState.procurementDetails,
+      currentQuestion: {
+        question: `How many ${conversationState.procurementDetails.requirements.productType} do you need?`,
+        key: "quantity",
+        field: "quantity",
+        validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
+      },
+      confirmedProduct,
+      products: conversationState.products,
+    });
   };
 
   const handleAskingQuantity = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
     const validation = conversationState.currentQuestion.validation(userInput);
     if (!validation) {
       const botReply = {
@@ -880,8 +637,8 @@ const Chatbot = ({ userId }) => {
         field: "budget",
         validation: (answer) => !isNaN(parseFloat(answer)) && parseFloat(answer) > 0,
       },
-      questionsQueue: [],
       confirmedProduct: conversationState.confirmedProduct,
+      products: conversationState.products,
     });
     const botReply = {
       from: "bot",
@@ -893,16 +650,6 @@ const Chatbot = ({ userId }) => {
   };
 
   const handleAskingBudget = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
     const validation = conversationState.currentQuestion.validation(userInput);
     if (!validation) {
       const botReply = {
@@ -927,8 +674,8 @@ const Chatbot = ({ userId }) => {
         field: "timeline",
         validation: (answer) => answer.trim().length > 3,
       },
-      questionsQueue: [],
       confirmedProduct: conversationState.confirmedProduct,
+      products: conversationState.products,
     });
     const botReply = {
       from: "bot",
@@ -940,16 +687,6 @@ const Chatbot = ({ userId }) => {
   };
 
   const handleAskingTimeline = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
     const timeline = userInput.trim();
     if (timeline.length < 3) {
       const botReply = {
@@ -977,7 +714,10 @@ const Chatbot = ({ userId }) => {
         stage: "gathering_woc",
         procurementDetails: updatedDetails,
         currentQuestion: wocQuestions[0],
-        questionsQueue: wocQuestions.slice(1),
+        questionsQueue: wocQuestions.slice(
+1),
+        confirmedProduct: conversationState.confirmedProduct,
+        products: conversationState.products,
       });
       const botReply = {
         from: "bot",
@@ -987,21 +727,32 @@ const Chatbot = ({ userId }) => {
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
     } else {
-      await handleWOCComplete(updatedDetails);
+      const confirmed = conversationState.confirmedProduct;
+      
+      const botReply = {
+        from: "bot",
+        text: `I've estimated the procurement value at ₹${estimatedValue.toLocaleString()}. Since this is a ${procurementMethod.method}, we can proceed directly.`,
+        timestamp: new Date().toISOString(),
+      };
+      
+      if (confirmed?.asin) {
+        botReply.text += `\n\nYou can purchase ${confirmed.title} on Amazon: https://www.amazon.com/dp/${confirmed.asin}`;
+      }
+      
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState(prev => ({
+        ...prev,
+        stage: "initial",
+        procurementDetails: updatedDetails,
+        confirmedProduct: conversationState.confirmedProduct,
+        products: [],
+      }));
     }
   };
 
   const handleGatheringWOC = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
     const { currentQuestion, questionsQueue, procurementDetails } = conversationState;
     const validation = currentQuestion.validation
       ? currentQuestion.validation(userInput)
@@ -1009,29 +760,32 @@ const Chatbot = ({ userId }) => {
     if (!validation) {
       const botReply = {
         from: "bot",
-        text: "Please provide a more detailed answer to strengthen the WOC justification.",
+        text: currentQuestion.validation ? "Please provide a valid answer (e.g., a detailed justification)." : "Please provide a more detailed answer to strengthen the WOC justification.",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
       return;
     }
-    const fieldPath = currentQuestion.field.split('.');
-    const updatedDetails = { ...procurementDetails };
-    let currentLevel = updatedDetails;
-    for (let i = 0; i < fieldPath.length - 1; i++) {
-      if (!currentLevel[fieldPath[i]]) {
-        currentLevel[fieldPath[i]] = {};
-      }
-      currentLevel = currentLevel[fieldPath[i]];
-    }
-    currentLevel[fieldPath[fieldPath.length - 1]] = userInput;
+    
+    const updatedWOC = {
+      ...procurementDetails.wocJustification,
+      [currentQuestion.key]: userInput,
+    };
+    
+    const updatedDetails = {
+      ...procurementDetails,
+      wocJustification: updatedWOC,
+    };
+    
     if (questionsQueue.length > 0) {
       setConversationState({
         stage: "gathering_woc",
         procurementDetails: updatedDetails,
         currentQuestion: questionsQueue[0],
         questionsQueue: questionsQueue.slice(1),
+        confirmedProduct: conversationState.confirmedProduct,
+        products: conversationState.products,
       });
       const botReply = {
         from: "bot",
@@ -1041,195 +795,28 @@ const Chatbot = ({ userId }) => {
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
     } else {
-      await handleWOCComplete(updatedDetails);
-    }
-  };
-
-  const handleWOCComplete = async (procurementDetails) => {
-    const potentialSuppliers = findPotentialSuppliers(procurementDetails);
-    const updatedDetails = {
-      ...procurementDetails,
-      suppliers: potentialSuppliers,
-    };
-    if (potentialSuppliers.length === 0) {
+      const confirmed = conversationState.confirmedProduct;
+      
       const botReply = {
         from: "bot",
-        text: "I couldn't find any suppliers matching your requirements within your budget and timeline. Would you like to modify your requirements or try a different search?",
+        text: `Thank you for providing the justification. I've documented it for compliance.`,
         timestamp: new Date().toISOString(),
       };
+      
+      if (confirmed?.asin) {
+        botReply.text += `\n\nYou can purchase ${confirmed.title} on Amazon: https://www.amazon.com/dp/${confirmed.asin}`;
+      }
+      
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
       setConversationState(prev => ({
         ...prev,
         stage: "initial",
-      }));
-    } else {
-      const topSuppliers = potentialSuppliers.slice(0, 3);
-      let supplierList = `Based on your requirements for ${procurementDetails.requirements.productType}, quantity of ${procurementDetails.quantity}, budget of ₹${procurementDetails.budget.toLocaleString()}, and timeline of "${procurementDetails.timeline}", here are the potential suppliers:\n\n`;
-      topSuppliers.forEach((supplier, index) => {
-        supplierList += `🏆 **Supplier ${index + 1}**\n` +
-                        `🏢 **Name:** ${supplier.name}\n` +
-                        `📍 **Location:** ${supplier.location}\n` +
-                        `💰 **Price Range:** ₹${supplier.price.toLocaleString()}${supplier.items[0].includes('service') ? '/service' : '/unit'}\n` +
-                        `⏱ **Delivery Time:** ${supplier.delivery_days} days\n` +
-                        `⭐ **Rating:** ${supplier.rating}/5\n\n`;
-      });
-      supplierList += "Would you like to:\n1. Invite Supplier 1\n2. Invite Supplier 2\n3. Invite Supplier 3\n4. See more options\n5. Start a new search";
-      const botReply = {
-        from: "bot",
-        text: supplierList,
-        suppliers: topSuppliers,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      setConversationState(prev => ({
-        ...prev,
-        stage: "supplier_selection",
         procurementDetails: updatedDetails,
-        currentQuestion: null,
-        questionsQueue: [],
+        confirmedProduct: conversationState.confirmedProduct,
+        products: [],
       }));
-    }
-  };
-
-  const handleSupplierSelection = async (userInput) => {
-    const generalResponse = await handleGeneralInput(userInput);
-    if (generalResponse) {
-      if (generalResponse.shouldEnd) {
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial"
-        }));
-      }
-      return;
-    }
-    const numInput = parseInt(userInput);
-    if (!isNaN(numInput)) {
-      if (numInput >= 1 && numInput <= 3) {
-        const selectedSupplier = conversationState.procurementDetails.suppliers[numInput - 1];
-        let wocMessage = "";
-        if (conversationState.procurementDetails.procurementMethod === "Open Tender") {
-          wocMessage = "\n\nI've finalized the Waiver of Competition justification based on our conversation.";
-        }
-        const botReply = {
-          from: "bot",
-          text: `Excellent! I've invited ${selectedSupplier.name} to participate in this procurement.${wocMessage}\n\nYou can contact them directly at: ${selectedSupplier.contact || 'their provided contact method'}.\n\nIs there anything else I can help you with today?`,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, botReply]);
-        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-        setConversationState(prev => ({
-          ...prev,
-          stage: "initial",
-        }));
-      } else if (numInput === 4) {
-        const nextSuppliers = conversationState.procurementDetails.suppliers.slice(3, 6);
-        if (nextSuppliers.length === 0) {
-          const botReply = {
-            from: "bot",
-            text: "No more suppliers available. Would you like to invite one of the previous options or start a new search?",
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((msgs) => [...msgs, botReply]);
-          if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-          return;
-        }
-        let supplierList = "Here are more supplier options:\n\n";
-        nextSuppliers.forEach((supplier, index) => {
-          supplierList += `🏆 **Supplier ${index + 4}**\n` +
-                          `🏢 **Name:** ${supplier.name}\n` +
-                          `📍 **Location:** ${supplier.location}\n` +
-                          `💰 **Price Range:** ₹${supplier.price.toLocaleString()}${supplier.items[0].includes('service') ? '/service' : '/unit'}\n` +
-                          `⏱ **Delivery Time:** ${supplier.delivery_days} days\n` +
-                          `⭐ **Rating:** ${supplier.rating}/5\n\n`;
-        });
-        supplierList += "Would you like to:\n1-3. Invite previous suppliers\n4-6. Invite these suppliers\n7. Start a new search";
-        const botReply = {
-          from: "bot",
-          text: supplierList,
-          suppliers: nextSuppliers,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, botReply]);
-        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-        setConversationState(prev => ({
-          ...prev,
-          procurementDetails: {
-            ...prev.procurementDetails,
-            suppliers: [...prev.procurementDetails.suppliers, ...nextSuppliers],
-          },
-        }));
-      } else if (numInput === 5 || numInput === 7) {
-        const botReply = {
-          from: "bot",
-          text: "No problem! Please describe what you'd like to procure again.",
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, botReply]);
-        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-        setConversationState({
-          stage: "initial",
-          procurementDetails: {
-            requirements: {},
-            estimatedValue: null,
-            procurementMethod: null,
-            wocJustification: null,
-            suppliers: [],
-            quantity: null,
-            budget: null,
-            timeline: null,
-          },
-          currentQuestion: null,
-          questionsQueue: [],
-          confirmedProduct: null,
-        });
-      } else {
-        const botReply = {
-          from: "bot",
-          text: "Please select a valid option (1-5).",
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, botReply]);
-        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      }
-    } else if (userInput.toLowerCase().match(/^(yes|proceed|invite)/)) {
-      const selectedSupplier = conversationState.procurementDetails.suppliers[0];
-      let wocMessage = "";
-      if (conversationState.procurementDetails.procurementMethod === "Open Tender") {
-        wocMessage = "\n\nI've finalized the Waiver of Competition justification based on our conversation.";
-      }
-      const botReply = {
-        from: "bot",
-        text: `Great! I've invited ${selectedSupplier.name} to participate in this procurement.${wocMessage}\n\nYou can contact them directly at: ${selectedSupplier.contact || 'their provided contact method'}.\n\nIs there anything else I can help you with today?`,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      setConversationState(prev => ({
-        ...prev,
-        stage: "initial",
-      }));
-    } else if (userInput.toLowerCase().match(/^(no|other|different|explore)/)) {
-      const botReply = {
-        from: "bot",
-        text: "Would you like to:\n1. See other supplier options\n2. Modify your requirements\n3. Start a new search",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      setConversationState(prev => ({
-        ...prev,
-        stage: "alternative_options",
-      }));
-    } else {
-      const botReply = {
-        from: "bot",
-        text: "Please select an option (1-5) or say 'yes' to proceed with the first recommendation.",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
     }
   };
 
@@ -1255,31 +842,37 @@ const Chatbot = ({ userId }) => {
     }
 
     try {
-      switch (conversationState.stage) {
-        case "initial":
-          await handleInitialState(input);
-          break;
-        case "confirming_product":
-          await handleGatheringRequirements(input);
-          break;
-        case "asking_quantity":
-          await handleAskingQuantity(input);
-          break;
-        case "asking_budget":
-          await handleAskingBudget(input);
-          break;
-        case "asking_timeline":
-          await handleAskingTimeline(input);
-          break;
-        case "gathering_woc":
-          await handleGatheringWOC(input);
-          break;
-        case "supplier_selection":
-        case "alternative_options":
-          await handleSupplierSelection(input);
-          break;
-        default:
-          await handleInitialState(input);
+      const generalResponse = await handleGeneralInput(input);
+      if (generalResponse) {
+        if (generalResponse.shouldEnd) {
+          setConversationState(prev => ({
+            ...prev,
+            stage: "initial"
+          }));
+        }
+      } else {
+        switch (conversationState.stage) {
+          case "initial":
+            await handleInitialState(input);
+            break;
+          case "selecting_product":
+            await handleSelectingProduct(input);
+            break;
+          case "asking_quantity":
+            await handleAskingQuantity(input);
+            break;
+          case "asking_budget":
+            await handleAskingBudget(input);
+            break;
+          case "asking_timeline":
+            await handleAskingTimeline(input);
+            break;
+          case "gathering_woc":
+            await handleGatheringWOC(input);
+            break;
+          default:
+            await handleInitialState(input);
+        }
       }
     } catch (err) {
       console.error("Error sending message:", err);
@@ -1305,6 +898,7 @@ const Chatbot = ({ userId }) => {
         currentQuestion: null,
         questionsQueue: [],
         confirmedProduct: null,
+        products: [],
       });
     } finally {
       setLoading(false);
@@ -1324,18 +918,14 @@ const Chatbot = ({ userId }) => {
       return conversationState.currentQuestion.question;
     }
     switch (conversationState.stage) {
-      case "confirming_product":
-        return "Please provide details to confirm the product...";
+      case "selecting_product":
+        return "Enter product number (1-3)...";
       case "asking_quantity":
         return "Enter the quantity needed...";
       case "asking_budget":
         return "Enter your total budget in ₹...";
       case "asking_timeline":
         return "Enter your desired timeline (e.g., 'ASAP', 'within 2 weeks')";
-      case "supplier_selection":
-        return "Select an option (1-5) or say 'yes' to proceed";
-      case "alternative_options":
-        return "Would you like to see other options or modify requirements?";
       default:
         return "Describe what you need to procure...";
     }
@@ -1348,8 +938,8 @@ const Chatbot = ({ userId }) => {
     switch (conversationState.stage) {
       case "initial":
         return "Ready to help with your procurement needs";
-      case "confirming_product":
-        return "Confirming product requirements";
+      case "selecting_product":
+        return "Selecting product from Amazon";
       case "asking_quantity":
         return "Gathering quantity details";
       case "asking_budget":
@@ -1358,10 +948,6 @@ const Chatbot = ({ userId }) => {
         return "Gathering timeline details";
       case "gathering_woc":
         return "Justifying Waiver of Competition";
-      case "supplier_selection":
-        return "Inviting suppliers";
-      case "alternative_options":
-        return "Exploring options";
       default:
         return "Procurement assistant";
     }
@@ -1518,7 +1104,7 @@ const Chatbot = ({ userId }) => {
           {messages.map((msg, idx) => (
             <div
               key={idx}
-              className={`max-w-[80%] p-4 mb-4 rounded-2xl shadow-lg animate_animated animate_fadeInUp ${
+              className={`max-w-[80%] p-4 mb-4 rounded-2xl shadow-lg animate__animated animate__fadeInUp ${
                 msg.from === "user"
                   ? "ml-auto bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-br-none"
                   : "mr-auto bg-white/80 dark:bg-gray-800/80 text-gray-800 dark:text-gray-200 rounded-bl-none border border-gray-200/50 dark:border-gray-700/50 backdrop-blur-lg"
@@ -1528,19 +1114,17 @@ const Chatbot = ({ userId }) => {
               {msg.suppliers && msg.suppliers.length > 0 && (
                 <div className="mt-3 p-4 bg-gray-100/80 dark:bg-gray-700/80 rounded-lg border border-gray-200/50 dark:border-gray-600/50 backdrop-blur-sm">
                   <strong className="block mb-2 font-semibold text-gray-700 dark:text-gray-200">
-                    Recommended Suppliers:
+                    Recommended Supplier:
                   </strong>
                   <ul className="list-disc pl-5 text-sm">
                     {msg.suppliers.map((vendor, index) => (
                       <li key={index} className="mb-2">
-                        <strong>Supplier {index + 1}:</strong> {vendor.name}<br />
-                        <strong>Location:</strong> {vendor.location}<br />
-                        <strong>Price:</strong> ₹{vendor.price.toLocaleString()}{vendor.items[0].includes('service') ? '/service' : '/unit'}<br />
+                        <strong>Supplier:</strong> {vendor.name}<br />
+                        <strong>Product:</strong> {vendor.product_title}<br />
+                        <strong>Price:</strong> ₹{vendor.price.toLocaleString()}/unit<br />
                         <strong>Delivery:</strong> {vendor.delivery_days} days<br />
-                        <strong>Rating:</strong> {vendor.rating}⭐
-                        {vendor.contact && (
-                          <><br /><strong>Contact:</strong> {vendor.contact}</>
-                        )}
+                        <strong>Rating:</strong> {vendor.rating}⭐<br />
+                        <strong>Purchase Link:</strong> <a href={vendor.product_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Buy Now</a>
                       </li>
                     ))}
                   </ul>
@@ -1557,7 +1141,7 @@ const Chatbot = ({ userId }) => {
         <div className="p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="max-w-3xl mx-auto flex items-center gap-3">
             <textarea
-              name="chat-input" // <-- Add this line
+              name="chat-input"
               className="flex-1 p-3 rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-white/50 dark:bg-gray-700/50 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm shadow-sm resize-none transition-all duration-200"
               rows={2}
               placeholder={getPlaceholderText()}

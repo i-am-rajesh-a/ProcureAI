@@ -24,6 +24,10 @@ const registerRouter = require("./api/auth/register");
 app.use("/api/auth/google", googleAuthRouter);
 app.use("/api/register", registerRouter);
 
+const chatRouter = require("./api/chat"); // Adjust path if needed
+
+app.use("/api/chat", chatRouter);
+
 // Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

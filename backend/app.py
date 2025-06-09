@@ -1,48 +1,55 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pymongo import MongoClient
-from bson.objectid import ObjectId, InvalidId
-from datetime import datetime
+import requests
 import os
 import json
+from datetime import datetime
+from pymongo import MongoClient
+from bson.objectid import ObjectId, InvalidId
 from register import register
 from login import login
 from api.auth.google.auth_routes import google_auth
 
+# Import amazon_api properly
+from services.amazon_api import (
+    search_products,
+    get_products_by_category,
+    get_product_details,
+    get_product_reviews,
+    get_product_offers,
+    get_best_sellers,
+    get_seller_reviews,
+    get_seller_profile,
+    get_product_categories
+)
+
+# MongoDB setup (adjust URI as needed)
+client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+db = client["procuredb"]
+
 app = Flask(__name__)
 
-# Configure CORS to allow cross-origin requests
-CORS(app, 
+# CORS configuration
+CORS(app,
      origins=["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization", "X-User-Id"],
      supports_credentials=True)
 
-# MongoDB connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/procurement_db")
-client = MongoClient(MONGO_URI)
-db = client.procurement_db
+# Apply CORS to blueprints BEFORE registering them
+CORS(register, origins=["http://localhost:5173"], supports_credentials=True)
+CORS(login, origins=["http://localhost:5173"], supports_credentials=True)
+CORS(google_auth, origins=["http://localhost:5173"], supports_credentials=True)
 
-# Load vendors data from JSON file
-def load_vendors_data():
-    try:
-        vendors_file_path = os.path.join(os.path.dirname(__file__), "data", "vendors.json")
-        if os.path.exists(vendors_file_path):
-            with open(vendors_file_path, 'r', encoding='utf-8') as file:
-                vendors_data = json.load(file)
-                print(f"Successfully loaded {len(vendors_data)} vendors from vendors.json")
-                return vendors_data
-        else:
-            print(f"Warning: Vendors file not found at {vendors_file_path}")
-            return []
-    except json.JSONDecodeError as e:
-        print(f"Error parsing vendors.json: {e}")
-        return []
-    except Exception as e:
-        print(f"Error loading vendors data: {e}")
-        return []
+# Register blueprints
+app.register_blueprint(register)
+app.register_blueprint(login)
+app.register_blueprint(google_auth)
 
-VENDORS_DATA = load_vendors_data()
+# --- CHAT ROUTES ---
 
 @app.route("/api/chat/start", methods=["POST"])
 def start_chat_session():
@@ -60,7 +67,6 @@ def start_chat_session():
             return jsonify({"error": "Invalid userId format"}), 400
 
         session_id = str(ObjectId())
-
         session_doc = {
             "sessionId": session_id,
             "userId": user_obj_id,
@@ -87,7 +93,6 @@ def start_chat_session():
         }
 
         result = db.chatSessions.insert_one(session_doc)
-
         if result.inserted_id:
             return jsonify({"sessionId": session_id, "message": "Chat session started successfully"}), 201
         else:
@@ -236,52 +241,144 @@ def rename_chat_session():
         print(f"Error renaming chat session: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route("/generate_questions", methods=["POST"])
-def generate_questions():
+# Removed Gemini question generation endpoint
+
+# --- AMAZON RAPIDAPI ROUTES ---
+
+@app.route("/api/amazon/search", methods=["GET"])
+def amazon_search():
     try:
-        data = request.get_json()
-        product = data.get("product", "")
-        questions = [
-            {"key": "specifications", "question": f"What specific requirements do you have for the {product}?"},
-            {"key": "quality", "question": "What quality level do you need? (e.g., premium, standard, budget)"},
-            {"key": "features", "question": "Any specific features or characteristics required?"},
-            {"key": "usage", "question": "How will these be used? (e.g., office use, industrial, personal)"},
-            {"key": "budget_range", "question": "What's your budget range per unit?"}
-        ]
-        return jsonify({"questions": questions}), 200
-    except Exception as e:
-        print(f"Error generating questions: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
+        keyword = request.args.get("keyword") or request.args.get("query")
+        if not keyword:
+            return jsonify({"error": "Keyword parameter is required"}), 400
+            
+        page = request.args.get("page", 1, type=int)
+        country = request.args.get("country", "us").upper()
+        
+        # Use imported function directly
+        product_data = search_products(keyword, page, country)
+        
+        # If Amazon search failed, handle the error
+        if "error" in product_data:
+            print(f"Amazon API error: {product_data['error']}")
+            return jsonify(product_data), 500
 
-@app.route("/api/vendors", methods=["GET"])
-def get_vendors():
+        # Get Gemini's analysis of the products
+        if product_data.get("success") and product_data.get("data", {}).get("products"):
+            try:
+                top_product = product_data["data"]["products"][0]
+                
+                # Prepare Gemini prompt
+                prompt = f"""Analyze this product for procurement:
+                Product: {top_product['title']}
+                Price: {top_product.get('price', 'N/A')}
+                
+                Provide a brief procurement recommendation including:
+                1. Suggested quantity range
+                2. Key specifications to verify
+                3. Potential alternatives to consider
+                
+                Format response in a conversational tone."""
+
+                # Call Gemini API
+                gemini_response = requests.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+                    headers={"Content-Type": "application/json"},
+                    params={"key": os.getenv("GEMINI_API_KEY")},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {
+                            "temperature": 0.7,
+                            "maxOutputTokens": 1024
+                        }
+                    },
+                    timeout=15
+                )
+                
+                if gemini_response.status_code == 200:
+                    ai_analysis = gemini_response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    product_data["ai_analysis"] = ai_analysis
+
+            except Exception as gemini_error:
+                print(f"Gemini API error: {str(gemini_error)}")
+                # Continue without AI analysis if Gemini fails
+                pass
+
+        return jsonify(product_data), 200
+        
+    except Exception as e:
+        print(f"Server error in amazon_search: {str(e)}")
+        return jsonify({
+            "error": "Internal server error",
+            "details": str(e),
+            "message": "Failed to search products"
+        }), 500
+
+@app.route("/api/amazon/category", methods=["GET"])
+def amazon_category():
+    category_id = request.args.get("category_id")
+    page = request.args.get("page", 1, type=int)
+    country = request.args.get("country", "us")
+    if not category_id:
+        return jsonify({"error": "Category ID is required"}), 400
     try:
-        product_type = request.args.get('product_type')
-        budget_min = request.args.get('budget_min', type=float)
-        budget_max = request.args.get('budget_max', type=float)
-        location = request.args.get('location')
-        rating_min = request.args.get('rating_min', type=float)
-        limit = request.args.get('limit', type=int, default=50)
-
-        budget_range = None
-        if budget_min is not None or budget_max is not None:
-            budget_range = (budget_min or 0, budget_max or float('inf'))
-
-        filtered_vendors = [v for v in VENDORS_DATA
-                            if (not product_type or product_type.lower() in v.get('category', '').lower()
-                                or any(product_type.lower() in item.lower() for item in v.get('items', [])))
-                            and (not budget_range or budget_range[0] <= v.get('price', 0) <= budget_range[1])
-                            and (not location or location.lower() in v.get('location', '').lower())
-                            and (not rating_min or v.get('rating', 0) >= rating_min)]
-
-        return jsonify({"vendors": filtered_vendors[:limit], "total": len(filtered_vendors)}), 200
+        data = get_products_by_category(category_id, page, country)
+        return jsonify(data), 200
     except Exception as e:
-        print(f"Error fetching vendors: {str(e)}")
-        return jsonify({"error": "Internal server error"}), 500
+        return jsonify({"error": str(e)}), 500
 
-app.register_blueprint(register)
-app.register_blueprint(login)
-app.register_blueprint(google_auth)
+@app.route("/api/amazon/product-details", methods=["GET"])
+def amazon_product_details():
+    asin = request.args.get("asin")
+    country = request.args.get("country", "us")
+    if not asin:
+        return jsonify({"error": "ASIN is required"}), 400
+    try:
+        data = get_product_details(asin, country)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/amazon/product-reviews", methods=["GET"])
+def amazon_product_reviews():
+    asin = request.args.get("asin")
+    page = request.args.get("page", 1, type=int)
+    country = request.args.get("country", "us")
+    if not asin:
+        return jsonify({"error": "ASIN is required"}), 400
+    try:
+        data = get_product_reviews(asin, page, country)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/amazon/product-offers", methods=["GET"])
+def amazon_product_offers():
+    asin = request.args.get("asin")
+    page = request.args.get("page", 1, type=int)
+    country = request.args.get("country", "us")
+    if not asin:
+        return jsonify({"error": "ASIN is required"}), 400
+    try:
+        data = get_product_offers(asin, page, country)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/amazon/best-sellers", methods=["GET"])
+def amazon_best_sellers():
+    category = request.args.get("category")
+    page = request.args.get("page", 1, type=int)
+    country = request.args.get("country", "us")
+    if not category:
+        return jsonify({"error": "Category is required"}), 400
+    try:
+        data = get_best_sellers(category, page, country)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- END AMAZON RAPIDAPI ROUTES ---
 
 if __name__ == "__main__":
     app.run(debug=True)
