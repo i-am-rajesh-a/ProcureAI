@@ -110,6 +110,7 @@ def save_chat():
         user_id = data.get("userId")
         from_field = data.get("from")
         text = data.get("text")
+        url = data.get("url")  # New field for URL
         timestamp = data.get("timestamp")
         state = data.get("state", {})
 
@@ -124,6 +125,7 @@ def save_chat():
         message = {
             "role": from_field,
             "content": text,
+            "url": url,  # Include URL in the message document
             "timestamp": datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.utcnow()
         }
 
@@ -133,7 +135,7 @@ def save_chat():
         )
 
         if update_result.modified_count > 0:
-            return jsonify({"message": "Chat saved successfully"}), 200
+            return jsonify({"success": True, "message": "Chat saved successfully"}), 200
         else:
             return jsonify({"error": "Failed to save message or session not found"}), 404
 
@@ -176,6 +178,7 @@ def get_chat_session(session_id):
         messages = [{
             "from": msg["role"],
             "text": msg["content"],
+            "url": msg.get("url"),  # Include URL in the response
             "timestamp": msg["timestamp"].isoformat()
         } for msg in session.get("messages", [])]
 
@@ -241,8 +244,6 @@ def rename_chat_session():
         print(f"Error renaming chat session: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-# Removed Gemini question generation endpoint
-
 # --- AMAZON RAPIDAPI ROUTES ---
 
 @app.route("/api/amazon/search", methods=["GET"])
@@ -251,24 +252,20 @@ def amazon_search():
         keyword = request.args.get("keyword") or request.args.get("query")
         if not keyword:
             return jsonify({"error": "Keyword parameter is required"}), 400
-            
+
         page = request.args.get("page", 1, type=int)
         country = request.args.get("country", "us").upper()
-        
-        # Use imported function directly
+
         product_data = search_products(keyword, page, country)
-        
-        # If Amazon search failed, handle the error
+
         if "error" in product_data:
             print(f"Amazon API error: {product_data['error']}")
             return jsonify(product_data), 500
 
-        # Get Gemini's analysis of the products
         if product_data.get("success") and product_data.get("data", {}).get("products"):
             try:
                 top_product = product_data["data"]["products"][0]
-                
-                # Prepare Gemini prompt
+
                 prompt = f"""Analyze this product for procurement:
                 Product: {top_product['title']}
                 Price: {top_product.get('price', 'N/A')}
@@ -280,7 +277,6 @@ def amazon_search():
                 
                 Format response in a conversational tone."""
 
-                # Call Gemini API
                 gemini_response = requests.post(
                     "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
                     headers={"Content-Type": "application/json"},
@@ -294,18 +290,17 @@ def amazon_search():
                     },
                     timeout=15
                 )
-                
+
                 if gemini_response.status_code == 200:
                     ai_analysis = gemini_response.json()["candidates"][0]["content"]["parts"][0]["text"]
                     product_data["ai_analysis"] = ai_analysis
 
             except Exception as gemini_error:
                 print(f"Gemini API error: {str(gemini_error)}")
-                # Continue without AI analysis if Gemini fails
                 pass
 
         return jsonify(product_data), 200
-        
+
     except Exception as e:
         print(f"Server error in amazon_search: {str(e)}")
         return jsonify({
@@ -374,6 +369,15 @@ def amazon_best_sellers():
         return jsonify({"error": "Category is required"}), 400
     try:
         data = get_best_sellers(category, page, country)
+        return jsonify(data), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/amazon/product-categories", methods=["GET"])
+def amazon_product_categories():
+    country = request.args.get("country", "US")
+    try:
+        data = get_product_categories(country)
         return jsonify(data), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
