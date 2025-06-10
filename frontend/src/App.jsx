@@ -1,7 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePages.jsx";
 import Chatbot from "./Chatbot";
-import Login from "./Login";
 import Register from "./Register"; 
 import HeroSection from "./Herosection";
 import "./App.css";
@@ -20,8 +19,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<HeroSection />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route path="/login" element={<Register initialForm="login" />} />
+      <Route path="/register" element={<Register initialForm="register" />} />
       <Route path="/home" element={<HomePage />} />
       <Route path="/chatbot" element={user && user._id ? <Chatbot userId={user._id} /> : <div>Loading...</div>} />
       <Route path="/dashboard" element={<DashboardComponent />} />
