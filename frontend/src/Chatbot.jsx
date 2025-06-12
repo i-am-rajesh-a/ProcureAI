@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import axios from "axios";
@@ -26,6 +25,7 @@ const Chatbot = ({ userId }) => {
     },
     currentQuestion: null,
     confirmedProduct: null,
+    confirmedSeller: null, // New field to store seller information
     products: [],
   });
   const [chatSessions, setChatSessions] = useState([]);
@@ -159,13 +159,16 @@ const Chatbot = ({ userId }) => {
       setConversationState({
         stage: "initial",
         procurementDetails: {
-          requirements: {},
+          requirements: {
+            productType: "",
+          },
           quantity: null,
           budget: null,
           timeline: null,
         },
         currentQuestion: null,
         confirmedProduct: null,
+        confirmedSeller: null,
         products: [],
       });
       const sessionsResponse = await axios.get(
@@ -210,6 +213,7 @@ const Chatbot = ({ userId }) => {
           },
           currentQuestion: null,
           confirmedProduct: null,
+          confirmedSeller: null,
           products: [],
         }
       );
@@ -271,7 +275,7 @@ const Chatbot = ({ userId }) => {
     try {
       const response = await axios.get("http://localhost:5000/api/amazon/search", {
         params: {
-          keyword: sanitizedKeyword,
+          query: sanitizedKeyword, // Changed from keyword to query
           country: "us",
           page: 1
         },
@@ -290,13 +294,14 @@ const Chatbot = ({ userId }) => {
       }
 
       if (response.data.error) {
-        throw new Error(response.data.details || response.data.error);
+        const errorMessage = response.data.details?.message || response.data.error;
+        throw new Error(errorMessage);
       }
 
       const products = response.data.data?.products || [];
       if (products.length > 0) {
         const productList = products.slice(0, 3).map((p, idx) =>
-          `${idx + 1}. ${p.title}\nPrice: $${p.price || 'N/A'}`
+          `${idx + 1}. ${p.ProductTitle || p.title}\nPrice: ${p.price || 'N/A'}`
         ).join('\n\n');
 
         const botReply = {
@@ -317,14 +322,15 @@ const Chatbot = ({ userId }) => {
             question: "Please select a product (1-3):",
             key: "product_selection",
             validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) >= 1 && parseInt(answer) <= 3
-          }
+          },
+          confirmedSeller: null,
         });
       }
     } catch (error) {
       console.error("Error searching Amazon products:", error);
       const botReply = {
         from: "bot",
-        text: `I encountered an error while searching. Please try another product description.`,
+        text: `Sorry, I couldn't search for "${sanitizedKeyword}" due to an issue: ${error.message}. Please try a different product or check later.`,
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
@@ -349,32 +355,75 @@ const Chatbot = ({ userId }) => {
     const confirmedProduct = {
       productType: conversationState.procurementDetails.requirements.productType,
       asin: selectedProduct.asin,
-      title: selectedProduct.title,
-      unitPrice: selectedProduct.price || 1000,
-      url: selectedProduct.url,
+      title: selectedProduct.ProductTitle, // Updated to ProductTitle
+      unitPrice: selectedProduct.price || "N/A",
+      url: selectedProduct.productUrl, // Updated to productUrl
     };
+
+    // Fetch product details to get seller information
+    let confirmedSeller = null;
+    let isAmazonFulfilled = false;
+    try {
+      const productResponse = await axios.get("http://localhost:5000/api/amazon/product-details", {
+        params: {
+          asin: selectedProduct.asin,
+          country: "us"
+        },
+        headers: { "X-User-Id": userId }
+      });
+
+      if (productResponse.data.success) {
+      isAmazonFulfilled = productResponse.data.data?.amazonFulfilled || false;
+      const sellerId = productResponse.data.data?.sellerId;
+      if (sellerId && sellerId !== "NA") {
+        const sellerResponse = await axios.get("http://localhost:5000/api/amazon/seller-details", {
+          params: {
+            seller_id: sellerId,
+            country: "us"
+          },
+          headers: { "X-User-Id": userId }
+        });
+        if (sellerResponse.data.success) {
+          confirmedSeller = sellerResponse.data.data;
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching product or seller details:", error);
+  }
+
+  // If no seller but Amazon-fulfilled, set default Amazon vendor info
+  if (!confirmedSeller && isAmazonFulfilled) {
+    confirmedSeller = {
+      sellerName: "Amazon",
+      rating: "N/A",
+      ratingNum: { lifeTime: "N/A" },
+      storeLink: confirmedProduct.url || "https://www.amazon.com",
+    };
+  }
 
     const botReply = {
-      from: "bot",
-      text: `Great! You selected: ${selectedProduct.title}. How many do you need?`,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((msgs) => [...msgs, botReply]);
-    if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-
-    setConversationState({
-      stage: "asking_quantity",
-      procurementDetails: conversationState.procurementDetails,
-      currentQuestion: {
-        question: `How many ${conversationState.procurementDetails.requirements.productType} do you need?`,
-        key: "quantity",
-        field: "quantity",
-        validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
-      },
-      confirmedProduct,
-      products: conversationState.products,
-    });
+    from: "bot",
+    text: `Great! You selected: ${selectedProduct.ProductTitle}. How many do you need?`,
+    timestamp: new Date().toISOString(),
   };
+  setMessages((msgs) => [...msgs, botReply]);
+  if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+  setConversationState({
+    stage: "asking_quantity",
+    procurementDetails: conversationState.procurementDetails,
+    currentQuestion: {
+      question: `How many ${conversationState.procurementDetails.requirements.productType} do you need?`,
+      key: "quantity",
+      field: "quantity",
+      validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
+    },
+    confirmedProduct,
+    confirmedSeller,
+    products: conversationState.products,
+  });
+};
 
   const handleAskingQuantity = async (userInput) => {
     const validation = conversationState.currentQuestion.validation(userInput);
@@ -402,6 +451,7 @@ const Chatbot = ({ userId }) => {
         validation: (answer) => !isNaN(parseFloat(answer)) && parseFloat(answer) > 0,
       },
       confirmedProduct: conversationState.confirmedProduct,
+      confirmedSeller: conversationState.confirmedSeller,
       products: conversationState.products,
     });
     const botReply = {
@@ -439,6 +489,7 @@ const Chatbot = ({ userId }) => {
         validation: (answer) => answer.trim().length > 3,
       },
       confirmedProduct: conversationState.confirmedProduct,
+      confirmedSeller: conversationState.confirmedSeller,
       products: conversationState.products,
     });
     const botReply = {
@@ -451,43 +502,48 @@ const Chatbot = ({ userId }) => {
   };
 
   const handleAskingTimeline = async (userInput) => {
-    const timeline = userInput.trim();
-    if (timeline.length < 3) {
-      const botReply = {
-        from: "bot",
-        text: "Please provide a valid timeline (e.g., 'ASAP', 'within 2 weeks', 'by June 30th').",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((msgs) => [...msgs, botReply]);
-      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-      return;
-    }
-    const updatedDetails = {
-      ...conversationState.procurementDetails,
-      timeline,
-    };
-    const confirmed = conversationState.confirmedProduct;
+  const timeline = userInput.trim();
+  if (timeline.length < 3) {
     const botReply = {
       from: "bot",
-      text: `Procurement details confirmed:\nProduct: ${confirmed.title}\nQuantity: ${updatedDetails.quantity}\nBudget: ₹${updatedDetails.budget.toLocaleString()}\nTimeline: ${timeline}\n\nYou can proceed with the purchase.`,
+      text: "Please provide a valid timeline (e.g., 'ASAP', 'within 2 weeks', 'by June 30th').",
       timestamp: new Date().toISOString(),
-      url: confirmed.url,
     };
     setMessages((msgs) => [...msgs, botReply]);
     if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-    setConversationState({
-      stage: "initial",
-      procurementDetails: {
-        requirements: {},
-        quantity: null,
-        budget: null,
-        timeline: null,
-      },
-      currentQuestion: null,
-      confirmedProduct: null,
-      products: [],
-    });
+    return;
+  }
+  const updatedDetails = {
+    ...conversationState.procurementDetails,
+    timeline,
   };
+  const confirmed = conversationState.confirmedProduct;
+  const seller = conversationState.confirmedSeller;
+  const vendorDetails = seller
+    ? `Vendor: ${seller.sellerName || 'N/A'}\nRating: ${seller.rating || 'N/A'}\nTotal Reviews: ${seller.ratingNum?.lifeTime || 'N/A'}\nStore: ${seller.storeLink || 'N/A'}`
+    : "This product is likely sold directly by Amazon or no vendor information is available.";
+  const botReply = {
+    from: "bot",
+    text: `Procurement details confirmed:\nProduct: ${confirmed.title}\nQuantity: ${updatedDetails.quantity}\nBudget: ₹${updatedDetails.budget.toLocaleString()}\nTimeline: ${timeline}\n\n${vendorDetails}\n\nYou can proceed with the purchase using the provided store link.`,
+    timestamp: new Date().toISOString(),
+    url: seller?.storeLink || confirmed.url,
+  };
+    setMessages((msgs) => [...msgs, botReply]);
+  if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+  setConversationState({
+    stage: "initial",
+    procurementDetails: {
+      requirements: {},
+      quantity: null,
+      budget: null,
+      timeline: null,
+    },
+    currentQuestion: null,
+    confirmedProduct: null,
+    confirmedSeller: null,
+    products: [],
+  });
+};
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -549,6 +605,7 @@ const Chatbot = ({ userId }) => {
         },
         currentQuestion: null,
         confirmedProduct: null,
+        confirmedSeller: null,
         products: [],
       });
     } finally {
@@ -768,7 +825,9 @@ const Chatbot = ({ userId }) => {
                     rel="noopener noreferrer"
                     className="text-blue-500 hover:underline font-medium"
                   >
-                    Purchase {conversationState.confirmedProduct?.title || "this item"} on Amazon
+                    {conversationState.confirmedSeller
+                      ? `View ${conversationState.confirmedSeller.seller_name || "Vendor"} Profile on Amazon`
+                      : "View Vendor Profile on Amazon"}
                   </a>
                 </div>
               )}

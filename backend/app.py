@@ -16,14 +16,8 @@ from api.auth.google.auth_routes import google_auth
 # Import amazon_api properly
 from services.amazon_api import (
     search_products,
-    get_products_by_category,
     get_product_details,
-    get_product_reviews,
-    get_product_offers,
-    get_best_sellers,
-    get_seller_reviews,
-    get_seller_profile,
-    get_product_categories
+    get_seller_details
 )
 
 # MongoDB setup (adjust URI as needed)
@@ -163,7 +157,7 @@ def get_chat_sessions(user_id):
         print(f"Error fetching chat sessions: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-@app.route("/api/chat/session/<session_id>", methods=["GET"])
+@app.route("/api/chat/select/<session_id>", methods=["GET"])
 def get_chat_session(session_id):
     try:
         user_id = request.args.get("userId")
@@ -178,7 +172,7 @@ def get_chat_session(session_id):
         messages = [{
             "from": msg["role"],
             "text": msg["content"],
-            "url": msg.get("url"),  # Include URL in the response
+            "url": msg.get("url"),
             "timestamp": msg["timestamp"].isoformat()
         } for msg in session.get("messages", [])]
 
@@ -254,20 +248,22 @@ def amazon_search():
             return jsonify({"error": "Keyword parameter is required"}), 400
 
         page = request.args.get("page", 1, type=int)
-        country = request.args.get("country", "us").upper()
+        country = request.args.get("country", "US").upper()
+        sort_by = request.args.get("sort_by", "RELEVANCE")  # Changed from RELEVANT to RELEVANCE
 
-        product_data = search_products(keyword, page, country)
+        product_data = search_products(keyword, page, country, sort_by)
 
+        # Return product_data with 200 status, even if no products are found
         if "error" in product_data:
             print(f"Amazon API error: {product_data['error']}")
-            return jsonify(product_data), 500
+            return jsonify(product_data), 200
 
         if product_data.get("success") and product_data.get("data", {}).get("products"):
             try:
                 top_product = product_data["data"]["products"][0]
 
                 prompt = f"""Analyze this product for procurement:
-                Product: {top_product['title']}
+                Product: {top_product['ProductTitle']}
                 Price: {top_product.get('price', 'N/A')}
                 
                 Provide a brief procurement recommendation including:
@@ -309,23 +305,10 @@ def amazon_search():
             "message": "Failed to search products"
         }), 500
 
-@app.route("/api/amazon/category", methods=["GET"])
-def amazon_category():
-    category_id = request.args.get("category_id")
-    page = request.args.get("page", 1, type=int)
-    country = request.args.get("country", "us")
-    if not category_id:
-        return jsonify({"error": "Category ID is required"}), 400
-    try:
-        data = get_products_by_category(category_id, page, country)
-        return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/api/amazon/product-details", methods=["GET"])
 def amazon_product_details():
     asin = request.args.get("asin")
-    country = request.args.get("country", "us")
+    country = request.args.get("country", "US")
     if not asin:
         return jsonify({"error": "ASIN is required"}), 400
     try:
@@ -334,50 +317,14 @@ def amazon_product_details():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/amazon/product-reviews", methods=["GET"])
-def amazon_product_reviews():
-    asin = request.args.get("asin")
-    page = request.args.get("page", 1, type=int)
-    country = request.args.get("country", "us")
-    if not asin:
-        return jsonify({"error": "ASIN is required"}), 400
-    try:
-        data = get_product_reviews(asin, page, country)
-        return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/amazon/product-offers", methods=["GET"])
-def amazon_product_offers():
-    asin = request.args.get("asin")
-    page = request.args.get("page", 1, type=int)
-    country = request.args.get("country", "us")
-    if not asin:
-        return jsonify({"error": "ASIN is required"}), 400
-    try:
-        data = get_product_offers(asin, page, country)
-        return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/amazon/best-sellers", methods=["GET"])
-def amazon_best_sellers():
-    category = request.args.get("category")
-    page = request.args.get("page", 1, type=int)
-    country = request.args.get("country", "us")
-    if not category:
-        return jsonify({"error": "Category is required"}), 400
-    try:
-        data = get_best_sellers(category, page, country)
-        return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/amazon/product-categories", methods=["GET"])
-def amazon_product_categories():
+@app.route("/api/amazon/seller-details", methods=["GET"])
+def amazon_seller_details():
+    seller_id = request.args.get("seller_id")
     country = request.args.get("country", "US")
+    if not seller_id:
+        return jsonify({"error": "sellerId is required"}), 400
     try:
-        data = get_product_categories(country)
+        data = get_seller_details(seller_id, country)
         return jsonify(data), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
