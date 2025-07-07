@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import axios from "axios";
@@ -5,11 +6,136 @@ import 'animate.css';
 
 const isValidMongoObjectId = (id) => typeof id === "string" && /^[a-f\d]{24}$/i.test(id);
 
+const detectGreetingOrConversation = (input) => {
+  const normalizedInput = input.toLowerCase().trim();
+  const greetings = [
+    "hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening",
+    "how are you", "what's up", "howdy", "yo", "sup"
+  ];
+  const conversationalPhrases = [
+    "how's it going", "what can you do", "tell me about yourself", "who are you",
+    "just chatting", "how's your day", "what's new"
+  ];
+  return {
+    isGreeting: greetings.some(greeting => normalizedInput.includes(greeting)),
+    isConversational: conversationalPhrases.some(phrase => normalizedInput.includes(phrase)),
+    input: normalizedInput
+  };
+};
+
+const isChatEndingInput = (input) => {
+  const normalized = input.toLowerCase().trim();
+  const endingWords = ["bye", "thankyou", "thanks", "welldone", "done", "goodbye", "see you", "exit", "quit"];
+  return endingWords.some(word => normalized.includes(word));
+};
+
+const isNoneLikeInput = (input) => {
+  const normalized = input.toLowerCase().trim();
+  const noneKeywords = [
+    "none", "other", "others", "different", "dislike", "don't like", "not these",
+    "another", "next", "new", "nope", "nah", "not interested"
+  ];
+  return noneKeywords.some(keyword => normalized.includes(keyword));
+};
+
+const isNewProductSearch = (input) => {
+  const normalized = input.toLowerCase().trim();
+  const searchKeywords = [
+    "search for", "find", "look for", "buy new", "purchase new", "need another", "want different",
+    "new product", "different product", "another product", "new search"
+  ];
+  const budgetQuantityKeywords = ["budget", "add", "increase", "units", "quantity"];
+  if (budgetQuantityKeywords.some(keyword => normalized.includes(keyword))) {
+    return false;
+  }
+  return searchKeywords.some(keyword => normalized.includes(keyword));
+};
+
+const matchProductName = (input, productTitle) => {
+  const normalizedInput = input.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const normalizedTitle = productTitle.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const inputWords = normalizedInput.split(/\s+/);
+  const titleWords = normalizedTitle.split(/\s+/);
+  const matches = inputWords.filter(word => titleWords.includes(word) && word.length > 2);
+  return matches.length >= 2 || normalizedInput.includes(normalizedTitle.split(' ').slice(0, 2).join(' '));
+};
+
+const parseExclusionaryInput = (input, maxOptions) => {
+  const normalized = input.toLowerCase().replace(/[^\w\s]/g, '').trim();
+  const negativeKeywords = ["not", "dont", "did not", "do not", "exclude", "didnt"];
+  const hasNegativeIntent = negativeKeywords.some(keyword => normalized.includes(keyword));
+  if (!hasNegativeIntent) return null;
+
+  const numbers = [];
+  const words = normalized.split(/\s+/);
+  const numberWords = { 'one': 1, 'two': 2, 'three': 3, 'first': 1, 'second': 2, 'third': 3 };
+  words.forEach(word => {
+    if (/^\d+$/.test(word)) {
+      const num = parseInt(word);
+      if (num >= 1 && num <= maxOptions) numbers.push(num);
+    } else if (numberWords[word]) {
+      numbers.push(numberWords[word]);
+    }
+  });
+
+  const uniqueNumbers = [...new Set(numbers)];
+  const allOptions = Array.from({ length: maxOptions }, (_, i) => i + 1);
+  const remainingOptions = allOptions.filter(num => !uniqueNumbers.includes(num));
+
+  return remainingOptions.length === 1 ? remainingOptions[0] : null;
+};
+
+const parseQuantityOrBudget = (input) => {
+  const normalized = input.toLowerCase().replace(/[^\w\s.$]/g, '').trim();
+  const words = normalized.split(/\s+/);
+
+  const quantityWords = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10
+  };
+  let quantity = null;
+  let budget = null;
+  let currency = null;
+
+  const currencyPattern = /(\d*\.?\d+)\s*(usd|inr|dollar|dollars|rupee|rupees|\$)/i;
+  const match = normalized.match(currencyPattern);
+  if (match) {
+    budget = parseFloat(match[1]);
+    currency = match[2].toLowerCase().replace('$', 'usd').replace(/dollar(s)?/, 'usd').replace(/rupee(s)?/, 'inr');
+    if (currency === 'inr') {
+      budget = budget / 83;
+      currency = 'USD';
+    }
+  }
+
+  if (!budget) {
+    for (let i = 0; i < words.length; i++) {
+      if (/^\d+$/.test(words[i])) {
+        const num = parseInt(words[i]);
+        if (
+          i + 1 < words.length &&
+          ['unit', 'units', 'piece', 'pieces', 'item', 'items'].includes(words[i + 1])
+        ) {
+          quantity = num;
+          break;
+        }
+      } else if (quantityWords[words[i]]) {
+        quantity = quantityWords[words[i]];
+        if (i + 1 < words.length && ['unit', 'units', 'piece', 'pieces', 'item', 'items'].includes(words[i + 1])) {
+          break;
+        }
+      }
+    }
+  }
+
+  return { quantity, budget, currency: currency || 'USD' };
+};
+
 const Chatbot = ({ userId }) => {
   const [messages, setMessages] = useState([
     {
       from: "bot",
-      text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', '50 laptops', 'cleaning services').",
+      text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', 'laptops', 'cleaning services').",
       timestamp: new Date().toISOString(),
     },
   ]);
@@ -21,12 +147,15 @@ const Chatbot = ({ userId }) => {
       requirements: {},
       quantity: null,
       budget: null,
-      timeline: null,
+      currency: "USD",
     },
     currentQuestion: null,
     confirmedProduct: null,
-    confirmedSeller: null, // New field to store seller information
+    confirmedSeller: null,
     products: [],
+    allProducts: [],
+    currentProductPage: 1,
+    selectedProductDetails: null,
   });
   const [chatSessions, setChatSessions] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(null);
@@ -34,6 +163,7 @@ const Chatbot = ({ userId }) => {
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editedTitle, setEditedTitle] = useState("");
   const messagesEndRef = useRef(null);
+  const searchCache = useRef(new Map());
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -52,19 +182,16 @@ const Chatbot = ({ userId }) => {
         );
         setChatSessions(response.data);
       } catch (error) {
-        console.error("Error fetching chat sessions:", error);
+        console.error("Error fetching chat sessions:", error.message);
       }
     };
     fetchChatSessions();
   }, [userId]);
 
   const saveMessageToSession = async (sessionId, message) => {
-    if (!sessionId) {
-      console.error("Cannot save message: no sessionId");
-      return;
-    }
+    if (!sessionId) return;
     try {
-      const response = await axios.post(
+      await axios.post(
         "http://localhost:5000/api/chat/save",
         {
           sessionId,
@@ -82,11 +209,8 @@ const Chatbot = ({ userId }) => {
           }
         }
       );
-      if (!response.data.success) {
-        throw new Error(response.data.error || "Failed to save message");
-      }
     } catch (error) {
-      console.error("Error saving message:", error.response?.data || error.message);
+      console.error("Error saving message:", error.message);
     }
   };
 
@@ -99,7 +223,7 @@ const Chatbot = ({ userId }) => {
       );
       return sessionId;
     } catch (error) {
-      console.error("Error creating new session:", error);
+      console.error("Error creating new session:", error.message);
       return null;
     }
   };
@@ -112,7 +236,7 @@ const Chatbot = ({ userId }) => {
       );
       return data;
     } catch (error) {
-      console.error("Error retrieving session:", error);
+      console.error("Error retrieving session:", error.message);
       return null;
     }
   };
@@ -125,7 +249,7 @@ const Chatbot = ({ userId }) => {
       );
       return response.status === 200;
     } catch (error) {
-      console.error("Error deleting:", error);
+      console.error("Error deleting session:", error.message);
       return false;
     }
   };
@@ -139,7 +263,7 @@ const Chatbot = ({ userId }) => {
       );
       return response.status === 200;
     } catch (error) {
-      console.error("Error renaming session:", error);
+      console.error("Error renaming session:", error.message);
       return false;
     }
   };
@@ -147,7 +271,7 @@ const Chatbot = ({ userId }) => {
   const startNewChat = async () => {
     const initialBotMessage = {
       from: "bot",
-      text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', '50 laptops', 'cleaning services').",
+      text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', 'laptops', 'cleaning services').",
       timestamp: new Date().toISOString(),
     };
     try {
@@ -164,12 +288,15 @@ const Chatbot = ({ userId }) => {
           },
           quantity: null,
           budget: null,
-          timeline: null,
+          currency: "USD",
         },
         currentQuestion: null,
         confirmedProduct: null,
         confirmedSeller: null,
         products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
       });
       const sessionsResponse = await axios.get(
         `http://localhost:5000/api/chat/sessions/${userId}`,
@@ -177,7 +304,7 @@ const Chatbot = ({ userId }) => {
       );
       setChatSessions(sessionsResponse.data);
     } catch (error) {
-      console.error("Error starting new chat:", error);
+      console.error("Error starting new chat:", error.message);
       setMessages([initialBotMessage]);
       setSelectedSessionId(null);
     }
@@ -194,7 +321,7 @@ const Chatbot = ({ userId }) => {
           : [
               {
                 from: "bot",
-                text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', '50 laptops', 'cleaning services').",
+                text: "Hello! 👋 I'm your Procurement AI assistant. Please describe what you need to purchase (e.g., 'office furniture', 'laptops', 'cleaning services').",
                 timestamp: new Date().toISOString(),
               },
             ]
@@ -209,12 +336,15 @@ const Chatbot = ({ userId }) => {
             },
             quantity: null,
             budget: null,
-            timeline: null,
+            currency: "USD",
           },
           currentQuestion: null,
           confirmedProduct: null,
           confirmedSeller: null,
           products: [],
+          allProducts: [],
+          currentProductPage: 1,
+          selectedProductDetails: null,
         }
       );
       setIsSidebarOpen(false);
@@ -249,8 +379,48 @@ const Chatbot = ({ userId }) => {
   };
 
   const analyzeProcurementType = (description) => {
-    const productMatch = description.match(/(\d+\s*)?([a-zA-Z\s-]+)$/);
-    const productType = productMatch ? productMatch[2].trim() : description;
+    const normalized = description.toLowerCase().trim();
+    
+    if (normalized.length < 3 || ["none", "nothing", "n/a", "no"].includes(normalized)) {
+      return { productType: null };
+    }
+
+    const stopWords = [
+      "i", "we", "please", "need", "want", "buy", "purchase", "help", "procure",
+      "to", "for", "a", "an", "the", "some", "any", "in", "on", "at", "with",
+      "is", "are", "am", "was", "were", "be", "can", "could", "should", "would",
+      "do", "does", "did", "get", "got", "have", "has", "had"
+    ];
+
+    const words = normalized.split(/\s+/).filter(word => !stopWords.includes(word) && word.length > 2);
+
+    const { isGreeting, isConversational } = detectGreetingOrConversation(normalized);
+    if (isGreeting || isConversational || words.length === 0) {
+      return { productType: null };
+    }
+
+    let productType = "";
+    if (words.length === 1) {
+      productType = words[0];
+    } else {
+      const potentialProduct = [];
+      let i = 0;
+      while (i < words.length) {
+        if (i + 1 < words.length && words[i].length > 2 && words[i + 1].length > 2) {
+          const phrase = `${words[i]} ${words[i + 1]}`;
+          potentialProduct.push(phrase);
+          i += 2;
+        } else {
+          potentialProduct.push(words[i]);
+          i += 1;
+        }
+      }
+      productType = potentialProduct[0] || words[0];
+      if (potentialProduct.length > 1) {
+        console.log("Multiple potential products detected:", potentialProduct);
+      }
+    }
+
     return { productType };
   };
 
@@ -258,12 +428,41 @@ const Chatbot = ({ userId }) => {
     return keyword.trim().replace(/[^a-zA-Z0-9\s]/g, '').substring(0, 50);
   };
 
+  const handleConversationalInput = async (userInput, isGreeting = false) => {
+    let botText;
+    if (isGreeting) {
+      botText = `Hi! 😊 I'm here to help you find the perfect product. What are you looking to buy today?`;
+    } else {
+      botText = `Cool, let's chat! 😄 What product or service are you thinking about procuring?`;
+    }
+
+    const botReply = {
+      from: "bot",
+      text: botText,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((msgs) => [...msgs, botReply]);
+    if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+  };
+
   const handleInitialState = async (userInput) => {
+    const { isGreeting, isConversational } = detectGreetingOrConversation(userInput);
+    
+    if (isGreeting || isConversational) {
+      await handleConversationalInput(userInput, isGreeting);
+      return;
+    }
+
     const procurementType = analyzeProcurementType(userInput);
-    if (!procurementType.productType || procurementType.productType.length < 3) {
+    if (!procurementType.productType) {
+      const answer = await handleGeminiAIQuery(
+        {},
+        `The user said: "${userInput}". They are interacting with a procurement AI assistant. Determine if they are asking about procurement (e.g., buying something) or something else. If procurement-related, suggest a product type or next step. Otherwise, respond conversationally and guide them toward procurement. Keep the response concise and natural.`,
+        messages.slice(-10)
+      );
       const botReply = {
         from: "bot",
-        text: "Please provide more details about what you'd like to procure. For example: 'office chairs', '50 laptops', or 'cleaning services'.",
+        text: answer,
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
@@ -272,12 +471,57 @@ const Chatbot = ({ userId }) => {
     }
 
     const sanitizedKeyword = sanitizeKeyword(procurementType.productType);
+    
+    if (searchCache.current.has(sanitizedKeyword)) {
+      const cachedProducts = searchCache.current.get(sanitizedKeyword);
+      const initialProducts = cachedProducts.slice(0, 3);
+      const productList = initialProducts.map((p, idx) =>
+        `${idx + 1}. ${p.ProductTitle}\nPrice: ${p.price || 'N/A'}\nVendor: ${p.sellerName || (p.isAmazonFulfilled ? 'Amazon' : 'Unknown Vendor')}`
+      ).join('\n\n');
+
+      const botReply = {
+        from: "bot",
+        text: `I found these options:\n\n${productList}\n\nWhich option interests you? (Select 1-3, product name, exclude options, or say 'none' for more options)`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+      setConversationState({
+        stage: "selecting_product",
+        procurementDetails: {
+          requirements: { productType: procurementType.productType },
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        products: initialProducts,
+        allProducts: cachedProducts,
+        currentProductPage: 1,
+        currentQuestion: {
+          question: "Please select a product (1-3, product name, exclude options, or 'none' for more):",
+          key: "product_selection",
+          validation: (answer) => {
+            const numbers = parseInputForNumbers(answer);
+            const productMatch = cachedProducts.findIndex(p => matchProductName(answer, p.ProductTitle));
+            const exclusion = parseExclusionaryInput(answer, initialProducts.length);
+            const isNone = isNoneLikeInput(answer);
+            return (numbers.length > 0 && numbers.some(num => num >= 1 && num <= initialProducts.length)) || productMatch !== -1 || exclusion !== null || isNone;
+          }
+        },
+        confirmedSeller: null,
+        selectedProductDetails: null,
+      });
+      return;
+    }
+
     try {
       const response = await axios.get("http://localhost:5000/api/amazon/search", {
         params: {
-          query: sanitizedKeyword, // Changed from keyword to query
+          query: sanitizedKeyword,
           country: "us",
-          page: 1
+          page: 1,
+          limit: 12
         },
         headers: { "X-User-Id": userId }
       });
@@ -294,43 +538,58 @@ const Chatbot = ({ userId }) => {
       }
 
       if (response.data.error) {
-        const errorMessage = response.data.details?.message || response.data.error;
-        throw new Error(errorMessage);
+        throw new Error(response.data.details?.message || response.data.error);
       }
 
-      const products = response.data.data?.products || [];
-      if (products.length > 0) {
-        const productList = products.slice(0, 3).map((p, idx) =>
-          `${idx + 1}. ${p.ProductTitle || p.title}\nPrice: ${p.price || 'N/A'}`
-        ).join('\n\n');
-
-        const botReply = {
-          from: "bot",
-          text: `I found these options:\n\n${productList}\n\nWhich option interests you? (Enter 1-3)`,
-          timestamp: new Date().toISOString(),
-        };
-        setMessages((msgs) => [...msgs, botReply]);
-        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-
-        setConversationState({
-          stage: "selecting_product",
-          procurementDetails: {
-            requirements: { productType: procurementType.productType }
-          },
-          products: products.slice(0, 3),
-          currentQuestion: {
-            question: "Please select a product (1-3):",
-            key: "product_selection",
-            validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) >= 1 && parseInt(answer) <= 3
-          },
-          confirmedSeller: null,
-        });
+      const allProducts = response.data.data?.products || [];
+      const initialProducts = allProducts.slice(0, 3);
+      searchCache.current.set(sanitizedKeyword, allProducts);
+      if (searchCache.current.size > 10) {
+        const oldestKey = searchCache.current.keys().next().value;
+        searchCache.current.delete(oldestKey);
       }
-    } catch (error) {
-      console.error("Error searching Amazon products:", error);
+
+      const productList = initialProducts.map((p, idx) =>
+        `${idx + 1}. ${p.ProductTitle}\nPrice: ${p.price || 'N/A'}\nVendor: ${p.sellerName || (p.isAmazonFulfilled ? 'Amazon' : 'Unknown Vendor')}`
+      ).join('\n\n');
+
       const botReply = {
         from: "bot",
-        text: `Sorry, I couldn't search for "${sanitizedKeyword}" due to an issue: ${error.message}. Please try a different product or check later.`,
+        text: `I found these options:\n\n${productList}\n\nWhich option interests you? (Select 1-3, product name, exclude options, or say 'none' for more options)`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+      setConversationState({
+        stage: "selecting_product",
+        procurementDetails: {
+          requirements: { productType: procurementType.productType },
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        products: initialProducts,
+        allProducts,
+        currentProductPage: 1,
+        currentQuestion: {
+          question: "Please select a product (1-3, product name, exclude options, or 'none' for more):",
+          key: "product_selection",
+          validation: (answer) => {
+            const numbers = parseInputForNumbers(answer);
+            const productMatch = allProducts.findIndex(p => matchProductName(answer, p.ProductTitle));
+            const exclusion = parseExclusionaryInput(answer, initialProducts.length);
+            const isNone = isNoneLikeInput(answer);
+            return (numbers.length > 0 && numbers.some(num => num >= 1 && num <= initialProducts.length)) || productMatch !== -1 || exclusion !== null || isNone;
+          }
+        },
+        confirmedSeller: null,
+        selectedProductDetails: null,
+      });
+    } catch {
+      const botReply = {
+        from: "bot",
+        text: `Sorry, I couldn't search for "${sanitizedKeyword}". Please try a different product or check later.`,
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
@@ -338,12 +597,211 @@ const Chatbot = ({ userId }) => {
     }
   };
 
+  const parseInputForNumbers = (input) => {
+    const normalized = input.toLowerCase().replace(/[^\w\s]/g, '').trim();
+    const words = normalized.split(/\s+/);
+
+    const numberWords = {
+      'one': 1,
+      'two': 2,
+      'three': 3,
+      'first': 1,
+      'second': 2,
+      'third': 3
+    };
+
+    const numbers = [];
+    words.forEach(word => {
+      if (/^\d+$/.test(word)) {
+        const num = parseInt(word);
+        if (num >= 1 && num <= 3) {
+          numbers.push(num);
+        }
+      } else if (numberWords[word]) {
+        numbers.push(numberWords[word]);
+      }
+    });
+
+    return [...new Set(numbers)];
+  };
+
+  const handleGeminiAIQuery = async (productDetails, userQuestion, conversationHistory = []) => {
+    try {
+      const response = await axios.post(
+        "http://localhost:5000/api/gemini-ai",
+        {
+          productData: productDetails,
+          question: userQuestion,
+          conversationHistory
+        },
+        {
+          headers: {
+            "X-User-Id": userId,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      return response.data.answer || "Sorry, I couldn't generate a response. Please try again or ask about a new product.";
+    } catch (error) {
+      console.error("Error querying Gemini AI:", error.response?.data || error.message);
+      const errorDetails = error.response?.data?.details || error.message;
+      return `Sorry, I couldn't process your question due to an error: ${errorDetails}. Please try again or ask about a new product.`;
+    }
+  };
+
+  const calculateUnitsAffordable = (budget, unitPrice, currency) => {
+    if (!budget || !unitPrice || isNaN(budget) || isNaN(unitPrice)) {
+      return "I don't have enough information to calculate the affordable quantity. Please provide a valid budget and ensure the product price is available.";
+    }
+    const units = Math.floor(budget / unitPrice);
+    const budgetDisplay = currency === 'INR' ? `${(budget * 83).toFixed(2)} INR (approx. $${budget.toFixed(2)} USD)` : `$${budget.toFixed(2)} ${currency}`;
+    return `With a budget of ${budgetDisplay}, you can afford approximately ${units} unit${units !== 1 ? 's' : ''} of this product (priced at $${unitPrice.toFixed(2)} USD each).`;
+  };
+
+  const calculateTotalCost = (quantity, unitPrice, currency) => {
+    if (!quantity || !unitPrice || isNaN(quantity) || isNaN(unitPrice)) {
+      return "I don't have enough information to calculate the total cost. Please provide a valid quantity and ensure the product price is available.";
+    }
+    const total = quantity * unitPrice;
+    const totalDisplayUSD = `$${total.toFixed(2)} USD`;
+    const totalDisplayINR = currency === 'INR' ? `${(total * 83).toFixed(2)} INR` : null;
+    return `For ${quantity} unit${quantity !== 1 ? 's' : ''} of this product (priced at $${unitPrice.toFixed(2)} USD each), the total cost is ${totalDisplayUSD}${totalDisplayINR ? ` (approx. ${totalDisplayINR})` : ''}.`;
+  };
+
   const handleSelectingProduct = async (userInput) => {
-    const selection = parseInt(userInput);
-    if (isNaN(selection) || selection < 1 || selection > conversationState.products.length) {
+    if (isChatEndingInput(userInput)) {
       const botReply = {
         from: "bot",
-        text: `Please enter a number between 1 and ${conversationState.products.length}`,
+        text: "Thanks for chatting! 😊 Feel free to start a new conversation anytime.",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState({
+        stage: "initial",
+        procurementDetails: {
+          requirements: {},
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: null,
+        confirmedProduct: null,
+        confirmedSeller: null,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
+      });
+      return;
+    }
+
+    if (isNoneLikeInput(userInput)) {
+      const { allProducts, currentProductPage } = conversationState;
+      const productsPerPage = 3;
+      const nextPage = currentProductPage + 1;
+      const startIndex = currentProductPage * productsPerPage;
+      
+      if (startIndex >= allProducts.length) {
+        const botReply = {
+          from: "bot",
+          text: `No more products available for "${conversationState.procurementDetails.requirements.productType}". Please describe a different product or start a new search.`,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, botReply]);
+        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+        
+        setConversationState({
+          ...conversationState,
+          stage: "initial",
+          products: [],
+          currentProductPage: 1,
+          currentQuestion: null,
+          selectedProductDetails: null,
+        });
+        return;
+      }
+
+      const nextProducts = allProducts.slice(startIndex, startIndex + productsPerPage);
+      const productList = nextProducts.map((p, idx) =>
+        `${idx + 1}. ${p.ProductTitle}\nPrice: ${p.price || 'N/A'}\nVendor: ${p.sellerName || (p.isAmazonFulfilled ? 'Amazon' : 'Unknown Vendor')}`
+      ).join('\n\n');
+
+      const botReply = {
+        from: "bot",
+        text: `Here are more options:\n\n${productList}\n\nWhich option interests you? (Select 1-${nextProducts.length}, product name, exclude options, or say 'none' for more options)`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+      setConversationState({
+        ...conversationState,
+        products: nextProducts,
+        currentProductPage: nextPage,
+        currentQuestion: {
+          question: `Please select a product (1-${nextProducts.length}, product name, exclude options, or 'none' for more):`,
+          key: "product_selection",
+          validation: (answer) => {
+            const numbers = parseInputForNumbers(answer);
+            const productMatch = allProducts.findIndex(p => matchProductName(answer, p.ProductTitle));
+            const exclusion = parseExclusionaryInput(answer, nextProducts.length);
+            const isNone = isNoneLikeInput(answer);
+            return (numbers.length > 0 && numbers.some(num => num >= 1 && num <= nextProducts.length)) || productMatch !== -1 || exclusion !== null || isNone;
+          }
+        },
+      });
+      return;
+    }
+
+    const maxOptions = conversationState.products.length;
+    let selection = null;
+
+    const exclusionSelection = parseExclusionaryInput(userInput, maxOptions);
+    if (exclusionSelection !== null) {
+      selection = exclusionSelection;
+      const botReply = {
+        from: "bot",
+        text: `Since you excluded other options, I'll proceed with option ${selection}.`,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+    }
+
+    if (!selection) {
+      const productMatchIndex = conversationState.products.findIndex(p => matchProductName(userInput, p.ProductTitle));
+      if (productMatchIndex !== -1) {
+        selection = productMatchIndex + 1;
+      }
+    }
+
+    if (!selection) {
+      const numbers = parseInputForNumbers(userInput);
+      if (numbers.length === 1) {
+        selection = numbers[0];
+      } else if (numbers.length > 1) {
+        const botReply = {
+          from: "bot",
+          text: `You mentioned multiple options (${numbers.join(', ')}). Please specify a single option (e.g., 'option ${numbers[0]}', the product name, or exclude others like 'not option ${numbers[1]}').`,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((msgs) => [...msgs, botReply]);
+        if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+        return;
+      }
+    }
+
+    if (!selection || selection < 1 || selection > maxOptions) {
+      const answer = await handleGeminiAIQuery(
+        { products: conversationState.products },
+        `The user said: "${userInput}". They were asked to select a product by entering a number (1-${maxOptions}), product name, exclude options (e.g., 'not option 1'), or say 'none'. Interpret their input and suggest a response to clarify or guide them.`,
+        messages.slice(-10)
+      );
+      const botReply = {
+        from: "bot",
+        text: answer,
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
@@ -355,201 +813,323 @@ const Chatbot = ({ userId }) => {
     const confirmedProduct = {
       productType: conversationState.procurementDetails.requirements.productType,
       asin: selectedProduct.asin,
-      title: selectedProduct.ProductTitle, // Updated to ProductTitle
+      title: selectedProduct.ProductTitle,
       unitPrice: selectedProduct.price || "N/A",
-      url: selectedProduct.productUrl, // Updated to productUrl
+      url: selectedProduct.productUrl,
     };
 
-    // Fetch product details to get seller information
-    let confirmedSeller = null;
-    let isAmazonFulfilled = false;
-    try {
-      const productResponse = await axios.get("http://localhost:5000/api/amazon/product-details", {
-        params: {
-          asin: selectedProduct.asin,
-          country: "us"
-        },
-        headers: { "X-User-Id": userId }
-      });
-
-      if (productResponse.data.success) {
-      isAmazonFulfilled = productResponse.data.data?.amazonFulfilled || false;
-      const sellerId = productResponse.data.data?.sellerId;
-      if (sellerId && sellerId !== "NA") {
-        const sellerResponse = await axios.get("http://localhost:5000/api/amazon/seller-details", {
-          params: {
-            seller_id: sellerId,
-            country: "us"
-          },
-          headers: { "X-User-Id": userId }
-        });
-        if (sellerResponse.data.success) {
-          confirmedSeller = sellerResponse.data.data;
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error fetching product or seller details:", error);
-  }
-
-  // If no seller but Amazon-fulfilled, set default Amazon vendor info
-  if (!confirmedSeller && isAmazonFulfilled) {
-    confirmedSeller = {
-      sellerName: "Amazon",
+    let confirmedSeller = {
+      sellerId: selectedProduct.sellerId || "UNKNOWN",
+      sellerName: selectedProduct.sellerName || (selectedProduct.isAmazonFulfilled ? "Amazon" : "Unknown Vendor"),
       rating: "N/A",
       ratingNum: { lifeTime: "N/A" },
-      storeLink: confirmedProduct.url || "https://www.amazon.com",
+      storeLink: selectedProduct.productUrl || "https://www.amazon.com",
     };
-  }
 
-    const botReply = {
-    from: "bot",
-    text: `Great! You selected: ${selectedProduct.ProductTitle}. How many do you need?`,
-    timestamp: new Date().toISOString(),
-  };
-  setMessages((msgs) => [...msgs, botReply]);
-  if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+    try {
+      const [productResponse, sellerResponse] = await Promise.all([
+        axios.get("http://localhost:5000/api/amazon/product-details", {
+          params: { asin: selectedProduct.asin, country: "us" },
+          headers: { "X-User-Id": userId }
+        }).catch(() => ({ data: { success: false } })),
+        selectedProduct.sellerId && selectedProduct.sellerId !== "UNKNOWN" && selectedProduct.sellerId !== "NA"
+          ? axios.get("http://localhost:5000/api/amazon/seller-profile", {
+              params: { seller_id: selectedProduct.sellerId, country: "us" },
+              headers: { "X-User-Id": userId }
+            }).catch(() => ({ data: { success: false } }))
+          : Promise.resolve({ data: { success: false } })
+      ]);
 
-  setConversationState({
-    stage: "asking_quantity",
-    procurementDetails: conversationState.procurementDetails,
-    currentQuestion: {
-      question: `How many ${conversationState.procurementDetails.requirements.productType} do you need?`,
-      key: "quantity",
-      field: "quantity",
-      validation: (answer) => !isNaN(parseInt(answer)) && parseInt(answer) > 0,
-    },
-    confirmedProduct,
-    confirmedSeller,
-    products: conversationState.products,
-  });
-};
+      let productDetails = {};
+      if (productResponse.data.success) {
+        productDetails = productResponse.data.data;
+        confirmedSeller.sellerName = productDetails.sellerName || confirmedSeller.sellerName;
+        if (productDetails.amazonFulfilled && !confirmedSeller.sellerName) {
+          confirmedSeller.sellerName = "Amazon";
+          confirmedSeller.sellerId = "AMAZON";
+        }
+      }
 
-  const handleAskingQuantity = async (userInput) => {
-    const validation = conversationState.currentQuestion.validation(userInput);
-    if (!validation) {
+      if (sellerResponse.data.success) {
+        confirmedSeller = {
+          ...confirmedSeller,
+          ...sellerResponse.data.data,
+          storeLink: sellerResponse.data.data.storeLink || confirmedProduct.url || "https://www.amazon.com"
+        };
+      }
+
       const botReply = {
         from: "bot",
-        text: "Please provide a valid quantity (e.g., '10' or '50').",
+        text: `Great! You selected: ${selectedProduct.ProductTitle}. How many units do you need, or what's your budget for this product (e.g., '10 units' or '$500')?`,
+        timestamp: new Date().toISOString(),
+        url: confirmedSeller.storeLink,
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+      setConversationState({
+        stage: "collecting_quantity_or_budget",
+        procurementDetails: {
+          requirements: { productType: conversationState.procurementDetails.requirements.productType },
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: {
+          question: "How many units do you need, or what's your budget for this product (e.g., '10 units' or '$500')?",
+          key: "quantity_or_budget",
+          validation: (answer) => {
+            const { quantity, budget } = parseQuantityOrBudget(answer);
+            return quantity !== null || budget !== null;
+          }
+        },
+        confirmedProduct,
+        confirmedSeller,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: productDetails,
+      });
+    } catch (error) {
+      console.error("Error fetching product or seller details:", error.message);
+      const botReply = {
+        from: "bot",
+        text: `Great! You selected: ${selectedProduct.ProductTitle}. How many units do you need, or what's your budget for this product (e.g., '10 units' or '$500')?`,
+        timestamp: new Date().toISOString(),
+        url: confirmedSeller.storeLink,
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+      setConversationState({
+        stage: "collecting_quantity_or_budget",
+        procurementDetails: {
+          requirements: { productType: conversationState.procurementDetails.requirements.productType },
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: {
+          question: "How many units do you need, or what's your budget for this product (e.g., '10 units' or '$500')?",
+          key: "quantity_or_budget",
+          validation: (answer) => {
+            const { quantity, budget } = parseQuantityOrBudget(answer);
+            return quantity !== null || budget !== null;
+          }
+        },
+        confirmedProduct,
+        confirmedSeller,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: {
+          title: selectedProduct.ProductTitle,
+          price: selectedProduct.price || 'N/A',
+          productUrl: selectedProduct.productUrl,
+          sellerName: confirmedSeller.sellerName,
+        },
+      });
+    }
+  };
+
+  const handleQuantityOrBudget = async (userInput, conversationHistory) => {
+    if (isChatEndingInput(userInput)) {
+      const botReply = {
+        from: "bot",
+        text: "Thanks for chatting! 😊 Feel free to start a new conversation anytime.",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState({
+        stage: "initial",
+        procurementDetails: {
+          requirements: {},
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: null,
+        confirmedProduct: null,
+        confirmedSeller: null,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
+      });
       return;
     }
-    const updatedDetails = {
-      ...conversationState.procurementDetails,
-      quantity: parseInt(userInput),
-    };
-    setConversationState({
-      stage: "asking_budget",
-      procurementDetails: updatedDetails,
-      currentQuestion: {
-        question: `What is your total budget for procuring ${updatedDetails.requirements.productType} (in ₹)?`,
-        key: "budget",
-        field: "budget",
-        validation: (answer) => !isNaN(parseFloat(answer)) && parseFloat(answer) > 0,
-      },
-      confirmedProduct: conversationState.confirmedProduct,
-      confirmedSeller: conversationState.confirmedSeller,
-      products: conversationState.products,
-    });
-    const botReply = {
-      from: "bot",
-      text: `Got it! You need ${userInput} ${updatedDetails.requirements.productType}. What is your total budget for this procurement (in ₹)?`,
-      timestamp: new Date().toISOString(),
-    };
-    setMessages((msgs) => [...msgs, botReply]);
-    if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-  };
 
-  const handleAskingBudget = async (userInput) => {
-    const validation = conversationState.currentQuestion.validation(userInput);
-    if (!validation) {
+    if (isNewProductSearch(userInput)) {
       const botReply = {
         from: "bot",
-        text: "Please provide a valid budget amount in ₹ (e.g., '50000' or '1000000').",
+        text: "Alright, let's start a new search! Please describe what you'd like to procure (e.g., 'office chairs', 'laptops').",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, botReply]);
       if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState({
+        stage: "initial",
+        procurementDetails: {
+          requirements: {},
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: null,
+        confirmedProduct: null,
+        confirmedSeller: null,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
+      });
       return;
     }
-    const updatedDetails = {
-      ...conversationState.procurementDetails,
-      budget: parseFloat(userInput),
-    };
-    setConversationState({
-      stage: "asking_timeline",
-      procurementDetails: updatedDetails,
-      currentQuestion: {
-        question: `What is your desired timeline for procuring ${updatedDetails.requirements.productType}? (e.g., 'ASAP', 'within 2 weeks')`,
-        key: "timeline",
-        field: "timeline",
-        validation: (answer) => answer.trim().length > 3,
-      },
-      confirmedProduct: conversationState.confirmedProduct,
-      confirmedSeller: conversationState.confirmedSeller,
-      products: conversationState.products,
-    });
+
+    const { quantity, budget, currency } = parseQuantityOrBudget(userInput);
+    const unitPrice = parseFloat(conversationState.confirmedProduct.unitPrice?.replace('$', '')) || null;
+    let botText = '';
+    let updatedBudget = conversationState.procurementDetails.budget;
+
+    const budgetUpdatePattern = /(?:add|increase)\s+(\d*\.?\d+)\s*(usd|inr|dollar|dollars|rupee|rupees|\$)/i;
+    const updateMatch = userInput.toLowerCase().match(budgetUpdatePattern);
+    if (updateMatch && updatedBudget !== null) {
+      let additionalBudget = parseFloat(updateMatch[1]);
+      let updateCurrency = updateMatch[2].toLowerCase().replace('$', 'usd').replace(/dollar(s)?/, 'usd').replace(/rupee(s)?/, 'inr');
+      if (updateCurrency === 'inr') {
+        additionalBudget = additionalBudget / 83;
+      }
+      updatedBudget += additionalBudget;
+      conversationState.procurementDetails.budget = updatedBudget;
+      conversationState.procurementDetails.currency = currency || updateCurrency || 'USD';
+    }
+
+    if (quantity !== null && unitPrice) {
+      conversationState.procurementDetails.quantity = quantity;
+      botText = calculateTotalCost(quantity, unitPrice, currency || conversationState.procurementDetails.currency);
+    } else if (budget !== null && unitPrice) {
+      conversationState.procurementDetails.budget = budget;
+      conversationState.procurementDetails.currency = currency || 'USD';
+      botText = calculateUnitsAffordable(budget, unitPrice, currency || 'USD');
+    } else if (updatedBudget !== null && unitPrice) {
+      conversationState.procurementDetails.currency = currency || conversationState.procurementDetails.currency;
+      botText = calculateUnitsAffordable(updatedBudget, unitPrice, conversationState.procurementDetails.currency);
+    } else {
+      const productDetails = conversationState.selectedProductDetails || {};
+      const answer = await handleGeminiAIQuery(
+        productDetails,
+        `The user said: "${userInput}". They were asked to provide a quantity (e.g., '10 units') or budget (e.g., '$500' or '100000 INR'). They previously provided a budget of ${conversationState.procurementDetails.budget ? (conversationState.procurementDetails.currency === 'INR' ? (conversationState.procurementDetails.budget * 83).toFixed(2) + ' INR' : '$' + conversationState.procurementDetails.budget.toFixed(2) + ' USD') : 'none'}. Interpret their input, handle budget updates (e.g., 'add 200000 INR'), and respond appropriately, calculating affordability or total cost if possible. Use 1 USD = 83 INR for conversions if needed.`,
+        conversationHistory
+      );
+      botText = answer;
+    }
+
     const botReply = {
       from: "bot",
-      text: `Thank you for providing the budget of ₹${parseFloat(userInput).toLocaleString()}. What is your desired timeline for procuring ${updatedDetails.requirements.productType}? (e.g., 'ASAP', 'within 2 weeks')`,
+      text: `${botText}\n\nYou can now ask any questions about the product (e.g., 'What are the product dimensions?') or say 'new search' for a different product.`,
       timestamp: new Date().toISOString(),
     };
     setMessages((msgs) => [...msgs, botReply]);
     if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+
+    setConversationState({
+      ...conversationState,
+      stage: "answering_product_questions",
+      procurementDetails: {
+        ...conversationState.procurementDetails,
+        quantity: quantity || conversationState.procurementDetails.quantity,
+        budget: updatedBudget || budget || conversationState.procurementDetails.budget,
+        currency: currency || conversationState.procurementDetails.currency,
+      },
+      currentQuestion: null,
+    });
   };
 
-  const handleAskingTimeline = async (userInput) => {
-  const timeline = userInput.trim();
-  if (timeline.length < 3) {
+  const handleProductQuestions = async (userInput, conversationHistory) => {
+    if (isChatEndingInput(userInput)) {
+      const botReply = {
+        from: "bot",
+        text: "Thanks for chatting! 😊 Feel free to start a new conversation anytime.",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState({
+        stage: "initial",
+        procurementDetails: {
+          requirements: {},
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: null,
+        confirmedProduct: null,
+        confirmedSeller: null,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
+      });
+      return;
+    }
+
+    if (isNewProductSearch(userInput)) {
+      const botReply = {
+        from: "bot",
+        text: "Alright, let's start a new search! Please describe what you'd like to procure (e.g., 'office chairs', 'laptops').",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((msgs) => [...msgs, botReply]);
+      if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
+      
+      setConversationState({
+        stage: "initial",
+        procurementDetails: {
+          requirements: {},
+          quantity: null,
+          budget: null,
+          currency: "USD",
+        },
+        currentQuestion: null,
+        confirmedProduct: null,
+        confirmedSeller: null,
+        products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
+      });
+      return;
+    }
+
+    const productDetails = conversationState.selectedProductDetails || {};
+    const answer = await handleGeminiAIQuery(productDetails, userInput, conversationHistory);
     const botReply = {
       from: "bot",
-      text: "Please provide a valid timeline (e.g., 'ASAP', 'within 2 weeks', 'by June 30th').",
+      text: answer,
       timestamp: new Date().toISOString(),
     };
     setMessages((msgs) => [...msgs, botReply]);
     if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-    return;
-  }
-  const updatedDetails = {
-    ...conversationState.procurementDetails,
-    timeline,
   };
-  const confirmed = conversationState.confirmedProduct;
-  const seller = conversationState.confirmedSeller;
-  const vendorDetails = seller
-    ? `Vendor: ${seller.sellerName || 'N/A'}\nRating: ${seller.rating || 'N/A'}\nTotal Reviews: ${seller.ratingNum?.lifeTime || 'N/A'}\nStore: ${seller.storeLink || 'N/A'}`
-    : "This product is likely sold directly by Amazon or no vendor information is available.";
-  const botReply = {
-    from: "bot",
-    text: `Procurement details confirmed:\nProduct: ${confirmed.title}\nQuantity: ${updatedDetails.quantity}\nBudget: ₹${updatedDetails.budget.toLocaleString()}\nTimeline: ${timeline}\n\n${vendorDetails}\n\nYou can proceed with the purchase using the provided store link.`,
-    timestamp: new Date().toISOString(),
-    url: seller?.storeLink || confirmed.url,
-  };
-    setMessages((msgs) => [...msgs, botReply]);
-  if (selectedSessionId) await saveMessageToSession(selectedSessionId, botReply);
-  setConversationState({
-    stage: "initial",
-    procurementDetails: {
-      requirements: {},
-      quantity: null,
-      budget: null,
-      timeline: null,
-    },
-    currentQuestion: null,
-    confirmedProduct: null,
-    confirmedSeller: null,
-    products: [],
-  });
-};
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim()) {
+      setInput("");
+      return;
+    }
     const userMessage = { from: "user", text: input, timestamp: new Date().toISOString() };
     setMessages((msgs) => [...msgs, userMessage]);
     setLoading(true);
+
+    const recentMessages = messages.slice(-10).map(msg => ({
+      role: msg.from,
+      content: msg.text,
+      timestamp: msg.timestamp
+    }));
 
     if (selectedSessionId) {
       await saveMessageToSession(selectedSessionId, userMessage);
@@ -574,23 +1154,19 @@ const Chatbot = ({ userId }) => {
         case "selecting_product":
           await handleSelectingProduct(input);
           break;
-        case "asking_quantity":
-          await handleAskingQuantity(input);
+        case "collecting_quantity_or_budget":
+          await handleQuantityOrBudget(input, recentMessages);
           break;
-        case "asking_budget":
-          await handleAskingBudget(input);
-          break;
-        case "asking_timeline":
-          await handleAskingTimeline(input);
+        case "answering_product_questions":
+          await handleProductQuestions(input, recentMessages);
           break;
         default:
           await handleInitialState(input);
       }
-    } catch (err) {
-      console.error("Error sending message:", err);
+    } catch {
       const errorReply = {
         from: "bot",
-        text: "I encountered a technical issue. Please try another product description.",
+        text: "I encountered a technical issue. 😅 Please try another input or describe what you want to procure.",
         timestamp: new Date().toISOString(),
       };
       setMessages((msgs) => [...msgs, errorReply]);
@@ -601,12 +1177,15 @@ const Chatbot = ({ userId }) => {
           requirements: {},
           quantity: null,
           budget: null,
-          timeline: null,
+          currency: "USD",
         },
         currentQuestion: null,
         confirmedProduct: null,
         confirmedSeller: null,
         products: [],
+        allProducts: [],
+        currentProductPage: 1,
+        selectedProductDetails: null,
       });
     } finally {
       setLoading(false);
@@ -627,33 +1206,29 @@ const Chatbot = ({ userId }) => {
     }
     switch (conversationState.stage) {
       case "selecting_product":
-        return "Enter product number (1-3)...";
-      case "asking_quantity":
-        return "Enter the quantity needed...";
-      case "asking_budget":
-        return "Enter your total budget in ₹...";
-      case "asking_timeline":
-        return "Enter your desired timeline (e.g., 'ASAP', 'within 2 weeks')";
+        return `Enter product number (1-${conversationState.products.length}, e.g., '1', 'option 2'), product name, exclude options (e.g., 'not option 1 and 3'), or 'none' for more options...`;
+      case "collecting_quantity_or_budget":
+        return "Enter the number of units (e.g., '10 units') or your budget (e.g., '$500' or '100000 INR')...";
+      case "answering_product_questions":
+        return `Ask a question about the selected product (e.g., 'What is the price for 10 units in INR?') or say 'new search' for a different product...`;
       default:
-        return "Describe what you need to procure...";
+        return "Describe what you need to procure (e.g., 'office chairs') or say 'hi' to chat...";
     }
   };
 
   const getStageDescription = () => {
     if (conversationState.currentQuestion) {
-      return "Confirming product details";
+      return "Selecting a product or providing quantity/budget";
     }
     switch (conversationState.stage) {
       case "initial":
         return "Ready to help with your procurement needs";
       case "selecting_product":
         return "Selecting product from Amazon";
-      case "asking_quantity":
-        return "Gathering quantity details";
-      case "asking_budget":
-        return "Gathering budget details";
-      case "asking_timeline":
-        return "Gathering timeline details";
+      case "collecting_quantity_or_budget":
+        return `Collecting quantity or budget for ${conversationState.confirmedProduct?.title || 'selected product'}`;
+      case "answering_product_questions":
+        return `Answering questions about ${conversationState.confirmedProduct?.title || 'selected product'}`;
       default:
         return "Procurement assistant";
     }
@@ -825,9 +1400,7 @@ const Chatbot = ({ userId }) => {
                     rel="noopener noreferrer"
                     className="text-blue-500 hover:underline font-medium"
                   >
-                    {conversationState.confirmedSeller
-                      ? `View ${conversationState.confirmedSeller.seller_name || "Vendor"} Profile on Amazon`
-                      : "View Vendor Profile on Amazon"}
+                    Visit Vendor Store
                   </a>
                 </div>
               )}
@@ -840,7 +1413,7 @@ const Chatbot = ({ userId }) => {
         </div>
 
         <div className="p-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-t border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="max-w-3xl mx-auto flex items-center gap-3">
+          <div className="max-w-6xl mx-auto flex items-center gap-3">
             <textarea
               name="chat-input"
               className="flex-1 p-3 rounded-lg border border-gray-300/50 dark:border-gray-600/50 bg-white/50 dark:bg-gray-700/50 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-sm shadow-sm resize-none transition-all duration-200"
@@ -881,3 +1454,4 @@ Chatbot.propTypes = {
 };
 
 export default Chatbot;
+
