@@ -13,11 +13,15 @@ const Register = ({ initialForm = "login" }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [formState, setFormState] = useState("idle");
   const [isMounted, setIsMounted] = useState(false);
-  const [isActive, setIsActive] = useState(initialForm === "login");// Start with true to show login form first
+  const [isActive, setIsActive] = useState(initialForm === "login");
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [forgotSuccess, setForgotSuccess] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    setIsMounted(true);
+    setTimeout(() => setIsMounted(true), 0);
   }, []);
 
   const handleInputChange = (e) => {
@@ -107,6 +111,32 @@ const Register = ({ initialForm = "login" }) => {
     } catch {
       setFormState("error");
       alert("Unable to complete sign in. Please check your connection and try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotSuccess("");
+    setIsLoading(true);
+    try {
+      const res = await fetch("http://localhost:5000/api/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+      const data = await res.json();
+      if (res.status === 200 && data.success) {
+        setForgotSuccess("A password reset link has been sent to your email.");
+        setForgotEmail("");
+        setTimeout(() => setIsForgotPasswordOpen(false), 3000);
+      } else {
+        setForgotError(data.message || "Failed to send reset link.");
+      }
+    } catch {
+      setForgotError("An error occurred while sending the reset link.");
     } finally {
       setIsLoading(false);
     }
@@ -211,7 +241,6 @@ const Register = ({ initialForm = "login" }) => {
             border-bottom-left-radius: 20px;
           }
 
-          /* Login form styling with blue theme */
           .form-box.login h1 {
             color: #1e40af;
             font-size: clamp(24px, 4vw, 32px);
@@ -227,7 +256,6 @@ const Register = ({ initialForm = "login" }) => {
             text-shadow: none;
           }
 
-          /* Register form styling with purple theme */
           .form-box.register h1 {
             color: #7c3aed;
             font-size: clamp(24px, 4vw, 32px);
@@ -488,12 +516,63 @@ const Register = ({ initialForm = "login" }) => {
             border: 1px solid rgba(52, 211, 153, 0.3);
           }
 
+          .forgot-password-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+            opacity: ${isForgotPasswordOpen ? "1" : "0"};
+            visibility: ${isForgotPasswordOpen ? "visible" : "hidden"};
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+          }
+
+          .forgot-password-box {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: clamp(20px, 4vw, 30px);
+            backdrop-filter: blur(5px);
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+          }
+
+          .forgot-password-box h2 {
+            color: #1e40af;
+            font-size: clamp(20px, 4vw, 24px);
+            margin-bottom: 20px;
+            font-weight: 700;
+            text-align: center;
+          }
+
+          .forgot-password-box .btn {
+            background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+          }
+
+          .forgot-password-box .btn:hover {
+            background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.6);
+            transform: translateY(-2px);
+          }
+
+          .forgot-password-box .btn.cancel {
+            background: linear-gradient(90deg, #6b7280, #4b5563);
+          }
+
+          .forgot-password-box .btn.cancel:hover {
+            background: linear-gradient(90deg, #4b5563, #6b7280);
+            box-shadow: 0 0 20px rgba(75, 85, 99, 0.6);
+            transform: translateY(-2px);
+          }
+
           @keyframes fadeInText {
             0% { opacity: 0; transform: translateY(20px); }
             100% { opacity: 1; transform: translateY(0); }
           }
 
-          /* Tablet styles */
           @media screen and (max-width: 1024px) {
             .container {
               max-width: 750px;
@@ -502,7 +581,6 @@ const Register = ({ initialForm = "login" }) => {
             }
           }
 
-          /* Small tablet / Large phone styles */
           @media screen and (max-width: 768px) {
             .container {
               height: calc(100vh - 20px);
@@ -563,9 +641,12 @@ const Register = ({ initialForm = "login" }) => {
               opacity: ${isActive ? "0" : "1"};
               transform: translateY(${isActive ? "20%" : "0"});
             }
+
+            .forgot-password-box {
+              max-width: 400px;
+            }
           }
 
-          /* Mobile phone styles */
           @media screen and (max-width: 480px) {
             .container {
               height: calc(100vh - 10px);
@@ -606,9 +687,13 @@ const Register = ({ initialForm = "login" }) => {
               font-size: clamp(11px, 3vw, 13px);
               gap: 6px;
             }
+
+            .forgot-password-box {
+              max-width: calc(100vw - 40px);
+              padding: clamp(15px, 3vw, 20px);
+            }
           }
 
-          /* Extra small devices */
           @media screen and (max-width: 320px) {
             .container {
               height: calc(100vh - 5px);
@@ -653,9 +738,12 @@ const Register = ({ initialForm = "login" }) => {
               height: 40px;
               font-size: 11px;
             }
+
+            .forgot-password-box {
+              padding: 10px;
+            }
           }
 
-          /* Landscape orientation for mobile */
           @media screen and (max-height: 500px) and (orientation: landscape) {
             .container {
               flex-direction: row;
@@ -742,6 +830,11 @@ const Register = ({ initialForm = "login" }) => {
               height: 35px;
               font-size: 12px;
             }
+
+            .forgot-password-box {
+              max-width: 500px;
+              padding: 15px;
+            }
           }
         `}
       </style>
@@ -796,6 +889,15 @@ const Register = ({ initialForm = "login" }) => {
                 ? "✓ Welcome Back!"
                 : "Sign In"}
             </button>
+            <div className="text-center text-sm mt-4">
+              <button
+                type="button"
+                onClick={() => setIsForgotPasswordOpen(true)}
+                className="text-blue-600 hover:text-blue-800 font-medium"
+              >
+                Forgot Password?
+              </button>
+            </div>
             {formState === "error" && (
               <div className="error-message">
                 Unable to sign in. Please verify your credentials and try again.
@@ -868,9 +970,56 @@ const Register = ({ initialForm = "login" }) => {
           </form>
         </div>
       </div>
+      {isForgotPasswordOpen && (
+        <div className="forgot-password-modal">
+          <div className="forgot-password-box">
+            <h2>Reset Password</h2>
+            <form onSubmit={handleForgotPassword} className="space-y-5">
+              <div className="input-box">
+                <MailIcon />
+                <input
+                  type="email"
+                  placeholder="Enter your email address"
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                  required
+                  className="w-full"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="btn flex-1"
+                >
+                  {isLoading ? "Sending..." : "Send Reset Link"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsForgotPasswordOpen(false)}
+                  className="btn cancel flex-1"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+            {forgotSuccess && (
+              <div className="success-message">
+                {forgotSuccess}
+              </div>
+            )}
+            {forgotError && (
+              <div className="error-message">
+                {forgotError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 Register.propTypes = {
   initialForm: PropTypes.string
 };

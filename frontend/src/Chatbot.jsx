@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import axios from "axios";
+import { Link } from "react-router-dom";
 import 'animate.css';
 
 const isValidMongoObjectId = (id) => typeof id === "string" && /^[a-f\d]{24}$/i.test(id);
@@ -1261,6 +1262,15 @@ const Chatbot = ({ userId }) => {
           </svg>
           New Chat
         </button>
+        <Link
+          to="/profile"
+          className="w-full flex items-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
+        >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+        </svg>
+        Profile
+        </Link>
         <div className="mt-6 space-y-3 overflow-y-auto max-h-[calc(100vh-200px)]">
           {chatSessions.length === 0 ? (
             <p className="text-gray-500 dark:text-gray-400 text-sm italic">No chat sessions yet</p>
